@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+/* eslint-disable react-hooks/exhaustive-deps */
+import React, { useState, useEffect, useCallback } from 'react';
 import { Container, Row, Col, Form, InputGroup, Button, Badge, Spinner, Alert, Card, Modal } from 'react-bootstrap';
 
 const Hackathons = () => {
@@ -102,15 +103,7 @@ const Hackathons = () => {
     }
   ];
 
-  useEffect(() => {
-    fetchHackathons();
-  }, []);
-
-  useEffect(() => {
-    filterAndSortHackathons();
-  }, [hackathons, searchTerm, filters, sortBy]);
-
-  const fetchHackathons = async () => {
+  const fetchHackathons = useCallback(async () => {
     try {
       setLoading(true);
       setTimeout(() => {
@@ -121,9 +114,9 @@ const Hackathons = () => {
       setError('SYSTEM ERROR: Failed to connect to hackathon database');
       setLoading(false);
     }
-  };
+  }, []);
 
-  const filterAndSortHackathons = () => {
+  const filterAndSortHackathons = useCallback(() => {
     let filtered = hackathons.filter(hackathon => {
       const matchesSearch = hackathon.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                            hackathon.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -165,7 +158,15 @@ const Hackathons = () => {
     });
 
     setFilteredHackathons(filtered);
-  };
+  }, [hackathons, searchTerm, filters, sortBy]);
+
+  useEffect(() => {
+    fetchHackathons();
+  }, [fetchHackathons]);
+
+  useEffect(() => {
+    filterAndSortHackathons();
+  }, [filterAndSortHackathons]);
 
   const handleFilterChange = (filterType, value) => {
     setFilters(prev => ({

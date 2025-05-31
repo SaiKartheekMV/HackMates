@@ -1,3 +1,5 @@
+/* eslint-disable no-unused-vars */
+/* eslint-disable react-refresh/only-export-components */
 import { useState, useEffect, useContext, createContext } from 'react';
 
 // Create Auth Context

@@ -242,8 +242,17 @@ const Home = () => {
         
         .hero-highlight {
           color: #ff00ff;
-          text-shadow: 0 0 20px #ff00ff, 0 0 40px #ff00ff;
-          position: relative;
+          font-family: 'Playfair Display', serif;
+          font-size: 4.5rem;
+          font-weight: 900;
+          color: #ff00ff;
+          text-shadow: 0 0 30px #ff00ff, 0 0 60px #ff00ff;
+          line-height: 1.1;
+          margin-bottom: 2rem;
+          background: linear-gradient(45deg, #ff00ff, #ff00ff, #ff00ff, #ff00ff);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
         }
         
         .hero-subtitle {
@@ -643,7 +652,7 @@ const Home = () => {
         .neon-icon-blue { color: #0080ff; filter: drop-shadow(0 0 10px #0080ff); }
         .neon-icon-lime { color: #80ff00; filter: drop-shadow(0 0 10px #80ff00); }
         .neon-icon-orange { color: #ff8000; filter: drop-shadow(0 0 10px #ff8000); }
-        .neon-icon-purple { color: #8000ff; filter: drop-shadow(0 0 10px #8000ff); }
+        .neon-icon-purple { color: #8000ff; filter: drop-shadow(0 0 5px #8000ff); }
         .neon-icon-pink { color: #ff0040; filter: drop-shadow(0 0 10px #ff0040); }
         .neon-icon-teal { color: #00ff80; filter: drop-shadow(0 0 10px #00ff80); }
         .neon-icon-gold { color: #ffd700; filter: drop-shadow(0 0 10px #ffd700); }
@@ -675,7 +684,7 @@ const Home = () => {
               </div>
               
               <h1 className="hero-title">
-                Renaissance of <span className="hero-highlight">Digital</span> Innovation
+                Renaissance of <span className="text-warning hero-highlight">Digital</span> Innovation
               </h1>
               
               <p className="hero-subtitle">

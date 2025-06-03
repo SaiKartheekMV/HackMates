@@ -89,7 +89,6 @@ const AppNavbar = () => {
         
         .brand-logo {
           color: #00ffff !important;
-          text-shadow: 0 0 10px #00ffff, 0 0 20px #00ffff, 0 0 30px rgba(0, 255, 255, 0.5);
           font-family: 'Orbitron', monospace;
           font-weight: 900;
           font-size: clamp(1.2rem, 2.5vw, 1.8rem);
@@ -98,7 +97,10 @@ const AppNavbar = () => {
           position: relative;
           display: flex;
           align-items: center;
-          letter-spacing: 1px;
+          text-shadow: 0 0 30px #00ffff, 0 0 60px #00ffff;
+          background: linear-gradient(45deg, #ffffff, #00ffff, #ff00ff, #ffffff);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
         }
         
         .brand-logo:hover {

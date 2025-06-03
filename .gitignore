@@ -1,3 +1,6 @@
 hackmates_env
 # Ignore the virtual environment directory
 .env
+
+node_modules
+# Ignore the build directory

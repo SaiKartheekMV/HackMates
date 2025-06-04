@@ -30,13 +30,23 @@ const Login = () => {
 
     try {
       const result = await login(formData);
-      if (result.success) {
+      
+      // Check if login was successful based on the presence of token
+      if (result && result.token) {
         navigate(from, { replace: true });
       } else {
-        setError(result.error);
+        // Handle case where result exists but no token (shouldn't happen with your backend)
+        setError(result?.error || 'Login failed');
       }
     } catch (err) {
-      setError('An unexpected error occurred');
+      // Handle different types of errors
+      if (err.response && err.response.status === 401) {
+        setError('Invalid email or password');
+      } else if (err.response && err.response.data && err.response.data.error) {
+        setError(err.response.data.error);
+      } else {
+        setError('An unexpected error occurred. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -72,6 +82,7 @@ const Login = () => {
                     onChange={handleChange}
                     placeholder="Enter your email"
                     required
+                    disabled={loading}
                   />
                 </Form.Group>
 
@@ -88,12 +99,19 @@ const Login = () => {
                       onChange={handleChange}
                       placeholder="Enter your password"
                       required
+                      disabled={loading}
                     />
                     <Button
                       variant="link"
                       className="position-absolute end-0 top-50 translate-middle-y border-0 text-muted"
                       onClick={() => setShowPassword(!showPassword)}
                       tabIndex={-1}
+                      disabled={loading}
+                      style={{ 
+                        background: 'none',
+                        boxShadow: 'none',
+                        padding: '0.375rem 0.75rem'
+                      }}
                     >
                       {showPassword ? <FaEyeSlash /> : <FaEye />}
                     </Button>
@@ -105,8 +123,13 @@ const Login = () => {
                     type="checkbox"
                     label="Remember me"
                     id="remember"
+                    disabled={loading}
                   />
-                  <Link to="/forgot-password" className="text-decoration-none">
+                  <Link 
+                    to="/forgot-password" 
+                    className="text-decoration-none"
+                    style={{ pointerEvents: loading ? 'none' : 'auto' }}
+                  >
                     Forgot password?
                   </Link>
                 </div>
@@ -120,7 +143,14 @@ const Login = () => {
                 >
                   {loading ? (
                     <>
-                      <Spinner size="sm" className="me-2" />
+                      <Spinner 
+                        as="span"
+                        animation="border"
+                        size="sm" 
+                        className="me-2" 
+                        role="status"
+                        aria-hidden="true"
+                      />
                       Signing In...
                     </>
                   ) : (
@@ -134,7 +164,11 @@ const Login = () => {
               <div className="text-center">
                 <p className="mb-0">
                   Don't have an account?{' '}
-                  <Link to="/register" className="text-decoration-none fw-bold">
+                  <Link 
+                    to="/register" 
+                    className="text-decoration-none fw-bold"
+                    style={{ pointerEvents: loading ? 'none' : 'auto' }}
+                  >
                     Sign up here
                   </Link>
                 </p>

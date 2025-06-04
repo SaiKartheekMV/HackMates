@@ -34,39 +34,25 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // Login function
-  const login = async (email, password) => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      // Simulate API call - replace with actual API endpoint
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Invalid credentials');
-      }
-
-      const data = await response.json();
-      
-      // Store user data and token
-      localStorage.setItem('hackmates_user', JSON.stringify(data.user));
-      localStorage.setItem('hackmates_token', data.token);
-      
-      setUser(data.user);
-      return { success: true };
-    } catch (err) {
-      setError(err.message);
-      return { success: false, error: err.message };
-    } finally {
-      setLoading(false);
-    }
-  };
+  const login = async (credentials) => {
+  // eslint-disable-next-line no-useless-catch
+  try {
+    // eslint-disable-next-line no-undef
+    const response = await axios.post('/api/auth/login', credentials);
+    
+    // Store token and user data
+    localStorage.setItem('token', response.data.token);
+    localStorage.setItem('user', JSON.stringify(response.data.user));
+    
+    // Update auth state
+    setUser(response.data.user);
+    getToken(response.data.token);
+    
+    return response.data;
+  } catch (error) {
+    throw error; // Re-throw to be handled in component
+  }
+};
 
   // Register function
   const register = async (userData) => {

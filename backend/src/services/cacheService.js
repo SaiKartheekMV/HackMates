@@ -1,482 +1,407 @@
 // src/services/cacheService.js
-const redis = require('redis');
+const redis = require('../config/redis');
 
 class CacheService {
   constructor() {
-    this.client = null;
-    this.isConnected = false;
-    this.connect();
+    this.defaultTTL = 3600; // 1 hour in seconds
+    this.keyPrefix = 'hackmates:';
   }
 
-  /**
-   * Connect to Redis
-   */
-  async connect() {
+  // Generate cache key with prefix
+  generateKey(key) {
+    return `${this.keyPrefix}${key}`;
+  }
+
+  // Set cache with TTL
+  async set(key, value, ttl = this.defaultTTL) {
     try {
-      this.client = redis.createClient({
-        url: process.env.REDIS_URL || 'redis://localhost:6379',
-        retry_strategy: (options) => {
-          if (options.error && options.error.code === 'ECONNREFUSED') {
-            console.error('Redis connection refused');
-            return new Error('Redis server connection refused');
-          }
-          if (options.total_retry_time > 1000 * 60 * 60) {
-            console.error('Redis retry time exhausted');
-            return new Error('Retry time exhausted');
-          }
-          if (options.attempt > 10) {
-            console.error('Redis connection attempts exhausted');
-            return undefined;
-          }
-          return Math.min(options.attempt * 100, 3000);
-        }
-      });
-
-      this.client.on('error', (error) => {
-        console.error('Redis Client Error:', error);
-        this.isConnected = false;
-      });
-
-      this.client.on('connect', () => {
-        console.log('Connected to Redis');
-        this.isConnected = true;
-      });
-
-      this.client.on('ready', () => {
-        console.log('Redis client ready');
-        this.isConnected = true;
-      });
-
-      this.client.on('end', () => {
-        console.log('Redis connection ended');
-        this.isConnected = false;
-      });
-
-      await this.client.connect();
-    } catch (error) {
-      console.error('Failed to connect to Redis:', error);
-      this.isConnected = false;
-    }
-  }
-
-  /**
-   * Check if Redis is connected
-   * @returns {boolean} Connection status
-   */
-  isRedisConnected() {
-    return this.isConnected && this.client && this.client.isOpen;
-  }
-
-  /**
-   * Set a key-value pair with optional expiration
-   * @param {string} key - Cache key
-   * @param {string} value - Cache value
-   * @param {number} ttl - Time to live in seconds (optional)
-   * @returns {Promise<boolean>} Success status
-   */
-  async set(key, value, ttl = null) {
-    try {
-      if (!this.isRedisConnected()) {
-        console.warn('Redis not connected, skipping cache set');
-        return false;
-      }
-
-      if (ttl) {
-        await this.client.setEx(key, ttl, value);
+      const cacheKey = this.generateKey(key);
+      const serializedValue = JSON.stringify(value);
+      
+      if (ttl > 0) {
+        await redis.setEx(cacheKey, ttl, serializedValue);
       } else {
-        await this.client.set(key, value);
+        await redis.set(cacheKey, serializedValue);
       }
+      
+      console.log(`Cache set: ${cacheKey}`);
       return true;
     } catch (error) {
-      console.error('Redis SET error:', error);
+      console.error('Cache set error:', error);
       return false;
     }
   }
 
-  /**
-   * Get value by key
-   * @param {string} key - Cache key
-   * @returns {Promise<string|null>} Cached value or null
-   */
+  // Get cache value
   async get(key) {
     try {
-      if (!this.isRedisConnected()) {
-        console.warn('Redis not connected, skipping cache get');
-        return null;
+      const cacheKey = this.generateKey(key);
+      const cachedValue = await redis.get(cacheKey);
+      
+      if (cachedValue) {
+        console.log(`Cache hit: ${cacheKey}`);
+        return JSON.parse(cachedValue);
       }
-
-      const value = await this.client.get(key);
-      return value;
+      
+      console.log(`Cache miss: ${cacheKey}`);
+      return null;
     } catch (error) {
-      console.error('Redis GET error:', error);
+      console.error('Cache get error:', error);
       return null;
     }
   }
 
-  /**
-   * Delete a key
-   * @param {string} key - Cache key
-   * @returns {Promise<boolean>} Success status
-   */
-  async delete(key) {
+  // Delete cache key
+  async del(key) {
     try {
-      if (!this.isRedisConnected()) {
-        console.warn('Redis not connected, skipping cache delete');
-        return false;
-      }
-
-      await this.client.del(key);
-      return true;
+      const cacheKey = this.generateKey(key);
+      const result = await redis.del(cacheKey);
+      console.log(`Cache deleted: ${cacheKey}`);
+      return result > 0;
     } catch (error) {
-      console.error('Redis DELETE error:', error);
+      console.error('Cache delete error:', error);
       return false;
     }
   }
 
-  /**
-   * Delete multiple keys by pattern
-   * @param {string} pattern - Key pattern (e.g., 'user:*')
-   * @returns {Promise<number>} Number of deleted keys
-   */
-  async deleteByPattern(pattern) {
+  // Check if key exists
+  async exists(key) {
     try {
-      if (!this.isRedisConnected()) {
-        console.warn('Redis not connected, skipping pattern delete');
-        return 0;
-      }
-
-      const keys = await this.client.keys(pattern);
-      if (keys.length === 0) return 0;
-
-      await this.client.del(keys);
-      return keys.length;
+      const cacheKey = this.generateKey(key);
+      const result = await redis.exists(cacheKey);
+      return result === 1;
     } catch (error) {
-      console.error('Redis DELETE BY PATTERN error:', error);
+      console.error('Cache exists error:', error);
+      return false;
+    }
+  }
+
+  // Get TTL for a key
+  async ttl(key) {
+    try {
+      const cacheKey = this.generateKey(key);
+      return await redis.ttl(cacheKey);
+    } catch (error) {
+      console.error('Cache TTL error:', error);
+      return -1;
+    }
+  }
+
+  // Increment counter
+  async incr(key, ttl = this.defaultTTL) {
+    try {
+      const cacheKey = this.generateKey(key);
+      const result = await redis.incr(cacheKey);
+      
+      if (result === 1 && ttl > 0) {
+        await redis.expire(cacheKey, ttl);
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Cache increment error:', error);
       return 0;
     }
   }
 
-  /**
-   * Check if key exists
-   * @param {string} key - Cache key
-   * @returns {Promise<boolean>} Key existence
-   */
-  async exists(key) {
-    try {
-      if (!this.isRedisConnected()) {
-        return false;
-      }
-
-      const exists = await this.client.exists(key);
-      return exists === 1;
-    } catch (error) {
-      console.error('Redis EXISTS error:', error);
-      return false;
-    }
+  // Set with expiration
+  async setEx(key, ttl, value) {
+    return await this.set(key, value, ttl);
   }
 
-  /**
-   * Set expiration for a key
-   * @param {string} key - Cache key
-   * @param {number} ttl - Time to live in seconds
-   * @returns {Promise<boolean>} Success status
-   */
-  async expire(key, ttl) {
+  // Hash operations
+  async hSet(key, field, value) {
     try {
-      if (!this.isRedisConnected()) {
-        return false;
-      }
-
-      await this.client.expire(key, ttl);
+      const cacheKey = this.generateKey(key);
+      const serializedValue = JSON.stringify(value);
+      await redis.hSet(cacheKey, field, serializedValue);
       return true;
     } catch (error) {
-      console.error('Redis EXPIRE error:', error);
+      console.error('Cache hSet error:', error);
       return false;
     }
   }
 
-  /**
-   * Increment a numeric value
-   * @param {string} key - Cache key
-   * @param {number} increment - Increment amount (default: 1)
-   * @returns {Promise<number|null>} New value or null on error
-   */
-  async increment(key, increment = 1) {
+  async hGet(key, field) {
     try {
-      if (!this.isRedisConnected()) {
-        return null;
-      }
-
-      const newValue = await this.client.incrBy(key, increment);
-      return newValue;
+      const cacheKey = this.generateKey(key);
+      const value = await redis.hGet(cacheKey, field);
+      return value ? JSON.parse(value) : null;
     } catch (error) {
-      console.error('Redis INCREMENT error:', error);
+      console.error('Cache hGet error:', error);
       return null;
     }
   }
 
-  /**
-   * Add item to a set
-   * @param {string} key - Set key
-   * @param {string|Array} members - Member(s) to add
-   * @returns {Promise<boolean>} Success status
-   */
-  async addToSet(key, members) {
+  async hGetAll(key) {
     try {
-      if (!this.isRedisConnected()) {
-        return false;
+      const cacheKey = this.generateKey(key);
+      const hash = await redis.hGetAll(cacheKey);
+      
+      const parsed = {};
+      for (const [field, value] of Object.entries(hash)) {
+        try {
+          parsed[field] = JSON.parse(value);
+        } catch {
+          parsed[field] = value;
+        }
       }
-
-      if (Array.isArray(members)) {
-        await this.client.sAdd(key, members);
-      } else {
-        await this.client.sAdd(key, members);
-      }
-      return true;
+      
+      return parsed;
     } catch (error) {
-      console.error('Redis SADD error:', error);
-      return false;
+      console.error('Cache hGetAll error:', error);
+      return {};
     }
   }
 
-  /**
-   * Get all members of a set
-   * @param {string} key - Set key
-   * @returns {Promise<Array>} Set members
-   */
-  async getSet(key) {
+  // List operations
+  async lPush(key, value) {
     try {
-      if (!this.isRedisConnected()) {
-        return [];
-      }
-
-      const members = await this.client.sMembers(key);
-      return members;
+      const cacheKey = this.generateKey(key);
+      const serializedValue = JSON.stringify(value);
+      return await redis.lPush(cacheKey, serializedValue);
     } catch (error) {
-      console.error('Redis SMEMBERS error:', error);
+      console.error('Cache lPush error:', error);
+      return 0;
+    }
+  }
+
+  async lRange(key, start = 0, stop = -1) {
+    try {
+      const cacheKey = this.generateKey(key);
+      const values = await redis.lRange(cacheKey, start, stop);
+      return values.map(value => {
+        try {
+          return JSON.parse(value);
+        } catch {
+          return value;
+        }
+      });
+    } catch (error) {
+      console.error('Cache lRange error:', error);
       return [];
     }
   }
 
-  /**
-   * Remove item from a set
-   * @param {string} key - Set key
-   * @param {string} member - Member to remove
-   * @returns {Promise<boolean>} Success status
-   */
-  async removeFromSet(key, member) {
+  // Set operations
+  async sAdd(key, member) {
     try {
-      if (!this.isRedisConnected()) {
-        return false;
-      }
-
-      await this.client.sRem(key, member);
-      return true;
+      const cacheKey = this.generateKey(key);
+      const serializedMember = JSON.stringify(member);
+      return await redis.sAdd(cacheKey, serializedMember);
     } catch (error) {
-      console.error('Redis SREM error:', error);
-      return false;
+      console.error('Cache sAdd error:', error);
+      return 0;
     }
   }
 
-  /**
-   * Cache user matches with TTL
-   * @param {string} userId - User ID
-   * @param {string} hackathonId - Hackathon ID
-   * @param {Array} matches - Match data
-   * @param {number} ttl - Time to live (default: 1 hour)
-   */
-  async cacheUserMatches(userId, hackathonId, matches, ttl = 3600) {
-    const key = `matches:${userId}:${hackathonId}`;
-    await this.set(key, JSON.stringify(matches), ttl);
-  }
-
-  /**
-   * Get cached user matches
-   * @param {string} userId - User ID
-   * @param {string} hackathonId - Hackathon ID
-   * @returns {Promise<Array|null>} Cached matches or null
-   */
-  async getCachedMatches(userId, hackathonId) {
-    const key = `matches:${userId}:${hackathonId}`;
-    const cached = await this.get(key);
-    return cached ? JSON.parse(cached) : null;
-  }
-
-  /**
-   * Invalidate all caches for a user
-   * @param {string} userId - User ID
-   */
-  async invalidateUserCache(userId) {
-    await this.deleteByPattern(`matches:${userId}:*`);
-    await this.deleteByPattern(`profile:${userId}*`);
-    await this.deleteByPattern(`user:${userId}*`);
-  }
-
-  /**
-   * Cache hackathon data
-   * @param {string} hackathonId - Hackathon ID
-   * @param {Object} data - Hackathon data
-   * @param {number} ttl - Time to live (default: 30 minutes)
-   */
-  async cacheHackathon(hackathonId, data, ttl = 1800) {
-    const key = `hackathon:${hackathonId}`;
-    await this.set(key, JSON.stringify(data), ttl);
-  }
-
-  /**
-   * Get cached hackathon data
-   * @param {string} hackathonId - Hackathon ID
-   * @returns {Promise<Object|null>} Cached hackathon or null
-   */
-  async getCachedHackathon(hackathonId) {
-    const key = `hackathon:${hackathonId}`;
-    const cached = await this.get(key);
-    return cached ? JSON.parse(cached) : null;
-  }
-
-  /**
-   * Cache hackathon list
-   * @param {string} filterHash - Hash of filter parameters
-   * @param {Array} hackathons - Hackathon list
-   * @param {number} ttl - Time to live (default: 15 minutes)
-   */
-  async cacheHackathonList(filterHash, hackathons, ttl = 900) {
-    const key = `hackathons:list:${filterHash}`;
-    await this.set(key, JSON.stringify(hackathons), ttl);
-  }
-
-  /**
-   * Get cached hackathon list
-   * @param {string} filterHash - Hash of filter parameters
-   * @returns {Promise<Array|null>} Cached hackathon list or null
-   */
-  async getCachedHackathonList(filterHash) {
-    const key = `hackathons:list:${filterHash}`;
-    const cached = await this.get(key);
-    return cached ? JSON.parse(cached) : null;
-  }
-
-  /**
-   * Store user session
-   * @param {string} sessionId - Session ID
-   * @param {Object} sessionData - Session data
-   * @param {number} ttl - Time to live (default: 24 hours)
-   */
-  async storeSession(sessionId, sessionData, ttl = 86400) {
-    const key = `session:${sessionId}`;
-    await this.set(key, JSON.stringify(sessionData), ttl);
-  }
-
-  /**
-   * Get user session
-   * @param {string} sessionId - Session ID
-   * @returns {Promise<Object|null>} Session data or null
-   */
-  async getSession(sessionId) {
-    const key = `session:${sessionId}`;
-    const cached = await this.get(key);
-    return cached ? JSON.parse(cached) : null;
-  }
-
-  /**
-   * Delete user session
-   * @param {string} sessionId - Session ID
-   */
-  async deleteSession(sessionId) {
-    const key = `session:${sessionId}`;
-    await this.delete(key);
-  }
-
-  /**
-   * Rate limiting: Check and increment request count
-   * @param {string} identifier - IP or user identifier
-   * @param {number} windowSeconds - Time window in seconds
-   * @param {number} maxRequests - Maximum requests allowed
-   * @returns {Promise<Object>} Rate limit info
-   */
-  async checkRateLimit(identifier, windowSeconds, maxRequests) {
+  async sMembers(key) {
     try {
-      if (!this.isRedisConnected()) {
-        // If Redis is down, allow requests but log warning
-        console.warn('Redis unavailable for rate limiting');
-        return { allowed: true, remaining: maxRequests, resetTime: Date.now() + (windowSeconds * 1000) };
-      }
+      const cacheKey = this.generateKey(key);
+      const members = await redis.sMembers(cacheKey);
+      return members.map(member => {
+        try {
+          return JSON.parse(member);
+        } catch {
+          return member;
+        }
+      });
+    } catch (error) {
+      console.error('Cache sMembers error:', error);
+      return [];
+    }
+  }
 
-      const key = `rate_limit:${identifier}`;
-      const current = await this.increment(key);
+  // Utility methods for common patterns
+
+  // Cache user data
+  async cacheUser(userId, userData, ttl = 1800) { // 30 minutes
+    return await this.set(`user:${userId}`, userData, ttl);
+  }
+
+  async getCachedUser(userId) {
+    return await this.get(`user:${userId}`);
+  }
+
+  // Cache user sessions
+  async cacheUserSession(sessionId, sessionData, ttl = 86400) { // 24 hours
+    return await this.set(`session:${sessionId}`, sessionData, ttl);
+  }
+
+  async getCachedUserSession(sessionId) {
+    return await this.get(`session:${sessionId}`);
+  }
+
+  async deleteCachedUserSession(sessionId) {
+    return await this.del(`session:${sessionId}`);
+  }
+
+  // Cache user matches
+  async cacheUserMatches(cacheKey, matches, ttl = 3600) { // 1 hour
+    return await this.set(cacheKey, matches, ttl);
+  }
+
+  async getCachedMatches(cacheKey) {
+    return await this.get(cacheKey);
+  }
+
+  // Cache hackathon data
+  async cacheHackathon(hackathonId, hackathonData, ttl = 1800) { // 30 minutes
+    return await this.set(`hackathon:${hackathonId}`, hackathonData, ttl);
+  }
+
+  async getCachedHackathon(hackathonId) {
+    return await this.get(`hackathon:${hackathonId}`);
+  }
+
+  // Cache hackathon list
+  async cacheHackathonList(filters, hackathons, ttl = 900) { // 15 minutes
+    const filterKey = this.generateFilterKey(filters);
+    return await this.set(`hackathons:${filterKey}`, hackathons, ttl);
+  }
+
+  async getCachedHackathonList(filters) {
+    const filterKey = this.generateFilterKey(filters);
+    return await this.get(`hackathons:${filterKey}`);
+  }
+
+  // Cache team data
+  async cacheTeam(teamId, teamData, ttl = 1800) { // 30 minutes
+    return await this.set(`team:${teamId}`, teamData, ttl);
+  }
+
+  async getCachedTeam(teamId) {
+    return await this.get(`team:${teamId}`);
+  }
+
+  // Cache user profile
+  async cacheProfile(userId, profileData, ttl = 3600) { // 1 hour
+    return await this.set(`profile:${userId}`, profileData, ttl);
+  }
+
+  async getCachedProfile(userId) {
+    return await this.get(`profile:${userId}`);
+  }
+
+  // Rate limiting
+  async checkRateLimit(identifier, limit, windowSeconds) {
+    try {
+      const key = `ratelimit:${identifier}`;
+      const current = await this.incr(key, windowSeconds);
       
-      if (current === 1) {
-        // First request in window, set expiration
-        await this.expire(key, windowSeconds);
-      }
-
-      const remaining = Math.max(0, maxRequests - current);
-      const allowed = current <= maxRequests;
-      const resetTime = Date.now() + (windowSeconds * 1000);
-
       return {
-        allowed,
-        remaining,
-        resetTime,
-        current
+        allowed: current <= limit,
+        current,
+        limit,
+        resetTime: Date.now() + (windowSeconds * 1000)
       };
     } catch (error) {
       console.error('Rate limit check error:', error);
-      // On error, allow the request
-      return { allowed: true, remaining: maxRequests, resetTime: Date.now() + (windowSeconds * 1000) };
+      return { allowed: true, current: 0, limit, resetTime: Date.now() };
     }
   }
 
-  /**
-   * Health check for Redis connection
-   * @returns {Promise<boolean>} Health status
-   */
-  async healthCheck() {
-    try {
-      if (!this.isRedisConnected()) {
-        return false;
-      }
+  // Cache API responses
+  async cacheAPIResponse(endpoint, params, response, ttl = 600) { // 10 minutes
+    const key = `api:${endpoint}:${this.generateFilterKey(params)}`;
+    return await this.set(key, response, ttl);
+  }
 
-      await this.client.ping();
+  async getCachedAPIResponse(endpoint, params) {
+    const key = `api:${endpoint}:${this.generateFilterKey(params)}`;
+    return await this.get(key);
+  }
+
+  // Invalidate related caches
+  async invalidateUserCache(userId) {
+    const patterns = [
+      `user:${userId}`,
+      `profile:${userId}`,
+      `matches:${userId}:*`
+    ];
+    
+    for (const pattern of patterns) {
+      if (pattern.includes('*')) {
+        const keys = await this.getKeysByPattern(pattern);
+        for (const key of keys) {
+          await this.del(key.replace(this.keyPrefix, ''));
+        }
+      } else {
+        await this.del(pattern);
+      }
+    }
+  }
+
+  async invalidateHackathonCache(hackathonId) {
+    await this.del(`hackathon:${hackathonId}`);
+    // Also invalidate hackathon lists
+    const keys = await this.getKeysByPattern('hackathons:*');
+    for (const key of keys) {
+      await this.del(key.replace(this.keyPrefix, ''));
+    }
+  }
+
+  async invalidateTeamCache(teamId) {
+    await this.del(`team:${teamId}`);
+  }
+
+  // Helper method to get keys by pattern
+  async getKeysByPattern(pattern) {
+    try {
+      const fullPattern = this.generateKey(pattern);
+      const keys = await redis.keys(fullPattern);
+      return keys;
+    } catch (error) {
+      console.error('Get keys by pattern error:', error);
+      return [];
+    }
+  }
+
+  // Generate a consistent key from filter object
+  generateFilterKey(filters) {
+    if (!filters || typeof filters !== 'object') return 'default';
+    
+    const sortedKeys = Object.keys(filters).sort();
+    const keyParts = sortedKeys.map(key => `${key}:${filters[key]}`);
+    return keyParts.join('|');
+  }
+
+  // Cache statistics
+  async getCacheStats() {
+    try {
+      const info = await redis.info('memory');
+      const keyspace = await redis.info('keyspace');
+      
+      return {
+        memory: info.split('\n').filter(line => line.includes('used_memory_human'))[0],
+        keyspace: keyspace.split('\n').filter(line => line.includes('db0'))[0],
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      console.error('Cache stats error:', error);
+      return { error: 'Unable to retrieve cache stats' };
+    }
+  }
+
+  // Clear all cache (use with caution)
+  async flushAll() {
+    try {
+      await redis.flushAll();
+      console.log('All cache cleared');
       return true;
     } catch (error) {
-      console.error('Redis health check failed:', error);
+      console.error('Cache flush error:', error);
       return false;
     }
   }
 
-  /**
-   * Get Redis info
-   * @returns {Promise<Object>} Redis information
-   */
-  async getInfo() {
-    try {
-      if (!this.isRedisConnected()) {
-        return { connected: false };
-      }
-
-      const info = await this.client.info();
-      return {
-        connected: true,
-        info: info
-      };
-    } catch (error) {
-      console.error('Redis info error:', error);
-      return { connected: false, error: error.message };
-    }
-  }
-
-  /**
-   * Gracefully close Redis connection
-   */
+  // Close Redis connection
   async close() {
     try {
-      if (this.client) {
-        await this.client.quit();
-        console.log('Redis connection closed');
-      }
+      await redis.quit();
+      console.log('Redis connection closed');
     } catch (error) {
-      console.error('Error closing Redis connection:', error);
+      console.error('Redis close error:', error);
     }
   }
 }

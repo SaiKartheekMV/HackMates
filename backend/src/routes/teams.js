@@ -1,166 +1,54 @@
+// src/routes/teams.js
 const express = require('express');
-const { body, query } = require('express-validator');
-const {
-  getMyTeams,
-  createTeam,
-  getTeamById,
-  updateTeam,
-  deleteTeam,
-  joinTeam,
-  leaveTeam,
-  removeTeamMember,
-  transferLeadership,
-  getTeamMembers,
-  searchTeams
-} = require('../controllers/teamController');
-const { authenticate } = require('../middleware/auth');
-
 const router = express.Router();
+const teamController = require('../controllers/teamController');
+const { authenticateToken } = require('../middleware/auth');
 
-// @route   GET /api/teams/my
-// @desc    Get current user's teams
-// @access  Private
-router.get('/my', authenticate, getMyTeams);
+// Import validation middleware - if it doesn't exist, we'll create basic ones
+let validateTeamCreation, validateTeamUpdate;
+try {
+  const validation = require('../middleware/validation');
+  validateTeamCreation = validation.validateTeamCreation;
+  validateTeamUpdate = validation.validateTeamUpdate;
+} catch (error) {
+  console.log('Validation middleware not found, using basic validation');
+  // Basic validation middleware as fallback
+  validateTeamCreation = (req, res, next) => {
+    const { name, hackathonId } = req.body;
+    if (!name || !hackathonId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name and hackathonId are required'
+      });
+    }
+    next();
+  };
+  
+  validateTeamUpdate = (req, res, next) => {
+    const { name } = req.body;
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name is required'
+      });
+    }
+    next();
+  };
+}
 
-// @route   GET /api/teams/search
-// @desc    Search teams
-// @access  Private
-router.get('/search', [
-  authenticate,
-  query('hackathonId')
-    .notEmpty()
-    .isMongoId()
-    .withMessage('Valid hackathon ID is required'),
-  query('q')
-    .optional()
-    .trim()
-    .isLength({ min: 2, max: 100 })
-    .withMessage('Search query must be between 2-100 characters'),
-  query('skills')
-    .optional()
-    .isArray()
-    .withMessage('Skills must be an array'),
-  query('page')
-    .optional()
-    .isInt({ min: 1 })
-    .withMessage('Page must be a positive integer'),
-  query('limit')
-    .optional()
-    .isInt({ min: 1, max: 50 })
-    .withMessage('Limit must be between 1 and 50')
-], searchTeams);
+// Protected routes - require authentication
+router.use(authenticateToken);
 
-// @route   POST /api/teams
-// @desc    Create team
-// @access  Private
-router.post('/', [
-  authenticate,
-  body('name')
-    .trim()
-    .isLength({ min: 3, max: 100 })
-    .withMessage('Team name must be between 3-100 characters'),
-  body('description')
-    .optional()
-    .trim()
-    .isLength({ max: 500 })
-    .withMessage('Description cannot exceed 500 characters'),
-  body('hackathonId')
-    .isMongoId()
-    .withMessage('Valid hackathon ID is required'),
-  body('requiredSkills')
-    .optional()
-    .isArray({ max: 10 })
-    .withMessage('Required skills must be an array with maximum 10 items'),
-  body('requiredSkills.*')
-    .optional()
-    .trim()
-    .isLength({ min: 1, max: 30 })
-    .withMessage('Each skill must be between 1-30 characters'),
-  body('maxMembers')
-    .isInt({ min: 2, max: 10 })
-    .withMessage('Maximum members must be between 2-10'),
-  body('isPublic')
-    .optional()
-    .isBoolean()
-    .withMessage('isPublic must be a boolean')
-], createTeam);
+// Team routes
+router.get('/my', teamController.getMyTeams);
+router.post('/', validateTeamCreation, teamController.createTeam);
+router.get('/:id', teamController.getTeamById);
+router.put('/:id', validateTeamUpdate, teamController.updateTeam);
+router.delete('/:id', teamController.deleteTeam);
+router.post('/:id/join', teamController.joinTeam);
+router.post('/:id/leave', teamController.leaveTeam);
 
-// @route   GET /api/teams/:id
-// @desc    Get team by ID
-// @access  Private
-router.get('/:id', authenticate, getTeamById);
-
-// @route   PUT /api/teams/:id
-// @desc    Update team (Team leader only)
-// @access  Private
-router.put('/:id', [
-  authenticate,
-  body('name')
-    .optional()
-    .trim()
-    .isLength({ min: 3, max: 100 })
-    .withMessage('Team name must be between 3-100 characters'),
-  body('description')
-    .optional()
-    .trim()
-    .isLength({ max: 500 })
-    .withMessage('Description cannot exceed 500 characters'),
-  body('requiredSkills')
-    .optional()
-    .isArray({ max: 10 })
-    .withMessage('Required skills must be an array with maximum 10 items'),
-  body('requiredSkills.*')
-    .optional()
-    .trim()
-    .isLength({ min: 1, max: 30 })
-    .withMessage('Each skill must be between 1-30 characters'),
-  body('maxMembers')
-    .optional()
-    .isInt({ min: 2, max: 10 })
-    .withMessage('Maximum members must be between 2-10'),
-  body('isPublic')
-    .optional()
-    .isBoolean()
-    .withMessage('isPublic must be a boolean'),
-  body('status')
-    .optional()
-    .isIn(['forming', 'complete', 'competing'])
-    .withMessage('Status must be forming, complete, or competing')
-], updateTeam);
-
-// @route   DELETE /api/teams/:id
-// @desc    Delete team (Team leader only)
-// @access  Private
-router.delete('/:id', authenticate, deleteTeam);
-
-// @route   POST /api/teams/:id/join
-// @desc    Join public team
-// @access  Private
-router.post('/:id/join', authenticate, joinTeam);
-
-// @route   POST /api/teams/:id/leave
-// @desc    Leave team
-// @access  Private
-router.post('/:id/leave', authenticate, leaveTeam);
-
-// @route   DELETE /api/teams/:id/members/:memberId
-// @desc    Remove team member (Team leader only)
-// @access  Private
-router.delete('/:id/members/:memberId', authenticate, removeTeamMember);
-
-// @route   PUT /api/teams/:id/transfer-leadership
-// @desc    Transfer team leadership (Team leader only)
-// @access  Private
-router.put('/:id/transfer-leadership', [
-  authenticate,
-  body('newLeaderId')
-    .isMongoId()
-    .withMessage('Valid new leader ID is required')
-], transferLeadership);
-
-// @route   GET /api/teams/:id/members
-// @desc    Get team members
-// @access  Private
-router.get('/:id/members', authenticate, getTeamMembers);
+// Better approach: Use consistent parameter naming and different route structure
+router.delete('/:id/member/:memberId', teamController.removeMember);
 
 module.exports = router;

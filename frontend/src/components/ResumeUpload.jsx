@@ -21,7 +21,7 @@ import {
   FaRobot,
   FaEdit
 } from 'react-icons/fa';
-import { useAuth } from '../hooks/useAuth';
+import { useAuth } from '../context/AuthContext';
 
 const ResumeUpload = ({ onResumeDataExtracted, existingResumeData = null }) => {
   const { getToken } = useAuth();

@@ -1,214 +1,247 @@
-// src/services/aiService.js
+// services/aiService.js
 const axios = require('axios');
-const FormData = require('form-data');
+const Profile = require('../models/Profile');
 
 class AIService {
   constructor() {
     this.aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:8000';
-    this.timeout = 30000; // 30 seconds timeout
+    this.timeout = 30000; // 30 seconds
   }
 
-  /**
-   * Parse resume using AI service
-   * @param {Buffer} resumeBuffer - Resume file buffer
-   * @param {string} filename - Original filename
-   * @returns {Object} Parsed resume data
-   */
-  async parseResume(resumeBuffer, filename) {
+  // Parse resume from buffer or file path
+  async parseResume(resumeBuffer) {
     try {
       const formData = new FormData();
-      formData.append('file', resumeBuffer, filename);
+      formData.append('file', resumeBuffer);
       
       const response = await axios.post(`${this.aiServiceUrl}/parse-resume`, formData, {
+        timeout: this.timeout,
         headers: {
-          ...formData.getHeaders(),
           'Content-Type': 'multipart/form-data'
-        },
-        timeout: this.timeout
+        }
       });
 
       return {
-        success: true,
-        data: response.data
+        skills: response.data.skills || [],
+        experience: response.data.experience || [],
+        education: response.data.education || [],
+        projects: response.data.projects || [],
+        bio: response.data.summary || '',
+        extractedText: response.data.text || ''
       };
     } catch (error) {
-      console.error('Resume parsing failed:', error.message);
+      console.error('Resume parsing error:', error.message);
+      
+      // Fallback: return basic structure if AI service fails
       return {
-        success: false,
-        error: 'Resume parsing failed. Please try again.'
+        skills: [],
+        experience: [],
+        education: [],
+        projects: [],
+        bio: 'Profile imported from resume',
+        extractedText: ''
       };
     }
   }
 
-  /**
-   * Generate embedding vector for user profile
-   * @param {Object} profileData - User profile data
-   * @returns {Array} Embedding vector
-   */
+  // Generate embedding vector for profile data
   async generateEmbedding(profileData) {
     try {
-      const payload = {
+      const response = await axios.post(`${this.aiServiceUrl}/generate-embedding`, {
         skills: profileData.skills || [],
         experience: profileData.experience || [],
         projects: profileData.projects || [],
         bio: profileData.bio || '',
         education: profileData.education || []
-      };
-
-      const response = await axios.post(`${this.aiServiceUrl}/generate-embedding`, payload, {
+      }, {
         timeout: this.timeout
       });
 
-      return {
-        success: true,
-        embedding: response.data.embedding
-      };
+      return response.data.embedding;
     } catch (error) {
-      console.error('Embedding generation failed:', error.message);
-      return {
-        success: false,
-        error: 'Failed to generate profile embedding'
-      };
+      console.error('Embedding generation error:', error.message);
+      
+      // Fallback: generate simple hash-based embedding
+      return this.generateFallbackEmbedding(profileData);
     }
   }
 
-  /**
-   * Find potential teammates using AI matching
-   * @param {Array} userEmbedding - User's embedding vector
-   * @param {string} hackathonId - Target hackathon ID
-   * @param {Object} preferences - User preferences
-   * @param {number} limit - Number of matches to return
-   * @returns {Array} Matched users
-   */
-  async findMatches(userEmbedding, hackathonId, preferences = {}, limit = 10) {
+  // Find compatible matches for a user
+  async findMatches(userEmbedding, hackathonId = null, limit = 10) {
     try {
-      const payload = {
+      const response = await axios.post(`${this.aiServiceUrl}/find-matches`, {
         embedding: userEmbedding,
         hackathonId,
-        preferences: {
-          skills: preferences.preferredSkills || [],
-          experience: preferences.experienceLevel || 'any',
-          location: preferences.location || null,
-          ...preferences
-        },
         limit
-      };
-
-      const response = await axios.post(`${this.aiServiceUrl}/find-matches`, payload, {
+      }, {
         timeout: this.timeout
       });
 
-      return {
-        success: true,
-        matches: response.data.matches
-      };
+      return response.data.matches || [];
     } catch (error) {
-      console.error('Matchmaking failed:', error.message);
-      return {
-        success: false,
-        error: 'Failed to find matches'
-      };
+      console.error('AI matchmaking error:', error.message);
+      
+      // Fallback: simple skill-based matching
+      return await this.fallbackMatching(userEmbedding, hackathonId, limit);
     }
   }
 
-  /**
-   * Calculate compatibility score between two users
-   * @param {Array} embedding1 - First user's embedding
-   * @param {Array} embedding2 - Second user's embedding
-   * @returns {number} Compatibility score (0-1)
-   */
-  async calculateCompatibility(embedding1, embedding2) {
+  // Calculate compatibility between two users
+  async calculateCompatibility(userEmbedding, targetEmbedding, additionalData = {}) {
     try {
-      const response = await axios.post(`${this.aiServiceUrl}/compatibility`, {
-        embedding1,
-        embedding2
+      const response = await axios.post(`${this.aiServiceUrl}/calculate-compatibility`, {
+        embedding1: userEmbedding,
+        embedding2: targetEmbedding,
+        ...additionalData
       }, {
         timeout: this.timeout
       });
 
       return {
-        success: true,
-        score: response.data.compatibility_score
+        score: response.data.compatibilityScore || 0,
+        reasons: response.data.reasons || [],
+        commonSkills: response.data.commonSkills || [],
+        complementarySkills: response.data.complementarySkills || []
       };
     } catch (error) {
-      console.error('Compatibility calculation failed:', error.message);
-      return {
-        success: false,
-        score: 0
-      };
+      console.error('Compatibility calculation error:', error.message);
+      
+      // Fallback: basic skill comparison
+      return this.calculateBasicCompatibility(additionalData);
     }
   }
 
-  /**
-   * Get skill recommendations based on user profile
-   * @param {Object} profileData - User profile data
-   * @returns {Array} Recommended skills
-   */
-  async getSkillRecommendations(profileData) {
-    try {
-      const response = await axios.post(`${this.aiServiceUrl}/recommend-skills`, {
-        currentSkills: profileData.skills || [],
-        projects: profileData.projects || [],
-        experience: profileData.experience || []
-      }, {
-        timeout: this.timeout
-      });
+  // Fallback embedding generation using simple hashing
+  generateFallbackEmbedding(profileData) {
+    const text = [
+      ...(profileData.skills || []),
+      profileData.bio || '',
+      ...(profileData.experience || []).map(exp => `${exp.title} ${exp.company}`),
+      ...(profileData.projects || []).map(proj => `${proj.name} ${proj.description}`)
+    ].join(' ').toLowerCase();
 
-      return {
-        success: true,
-        recommendations: response.data.recommended_skills
+    // Generate a simple 256-dimensional embedding
+    const embedding = new Array(256).fill(0);
+    
+    for (let i = 0; i < text.length; i++) {
+      const charCode = text.charCodeAt(i);
+      embedding[i % 256] += charCode / text.length;
+    }
+
+    return embedding.map(val => Math.tanh(val)); // Normalize between -1 and 1
+  }
+
+  // Fallback matching based on skill similarity
+  async fallbackMatching(userEmbedding, hackathonId, limit) {
+    try {
+      // Get user's profile to extract skills
+      const userProfile = await Profile.findOne({ aiEmbedding: userEmbedding });
+      if (!userProfile) return [];
+
+      const userSkills = userProfile.skills || [];
+      
+      // Find profiles with similar skills
+      const query = { 
+        userId: { $ne: userProfile.userId },
+        skills: { $in: userSkills }
       };
+
+      const profiles = await Profile.find(query)
+        .populate('userId', 'firstName lastName profilePicture')
+        .limit(limit * 2); // Get more to filter better matches
+
+      // Calculate simple compatibility scores
+      const matches = profiles.map(profile => {
+        const commonSkills = profile.skills.filter(skill => 
+          userSkills.includes(skill)
+        );
+        
+        const score = Math.min(commonSkills.length / Math.max(userSkills.length, 1), 1);
+        
+        return {
+          userId: profile.userId._id.toString(),
+          compatibilityScore: score,
+          reasons: [`${commonSkills.length} common skills`],
+          commonSkills,
+          user: profile.userId
+        };
+      })
+      .sort((a, b) => b.compatibilityScore - a.compatibilityScore)
+      .slice(0, limit);
+
+      return matches;
     } catch (error) {
-      console.error('Skill recommendation failed:', error.message);
-      return {
-        success: false,
-        recommendations: []
-      };
+      console.error('Fallback matching error:', error.message);
+      return [];
     }
   }
 
-  /**
-   * Analyze team composition and suggest improvements
-   * @param {Array} teamMembers - Array of team member profiles
-   * @param {string} hackathonId - Hackathon ID
-   * @returns {Object} Team analysis and suggestions
-   */
-  async analyzeTeamComposition(teamMembers, hackathonId) {
-    try {
-      const response = await axios.post(`${this.aiServiceUrl}/analyze-team`, {
-        teamMembers,
-        hackathonId
-      }, {
-        timeout: this.timeout
-      });
+  // Basic compatibility calculation
+  calculateBasicCompatibility(data) {
+    const userSkills = data.userSkills || [];
+    const targetSkills = data.targetSkills || [];
+    
+    const commonSkills = userSkills.filter(skill => targetSkills.includes(skill));
+    const score = Math.min(commonSkills.length / Math.max(userSkills.length, 1), 1);
+    
+    return {
+      score,
+      reasons: [`${commonSkills.length} skills in common`],
+      commonSkills,
+      complementarySkills: targetSkills.filter(skill => !userSkills.includes(skill))
+    };
+  }
 
-      return {
-        success: true,
-        analysis: response.data
-      };
+  // Update user embedding when profile changes
+  async updateUserEmbedding(userId, profileData) {
+    try {
+      const embedding = await this.generateEmbedding(profileData);
+      
+      await Profile.findOneAndUpdate(
+        { userId },
+        { 
+          aiEmbedding: embedding,
+          updatedAt: new Date()
+        }
+      );
+
+      return embedding;
     } catch (error) {
-      console.error('Team analysis failed:', error.message);
-      return {
-        success: false,
-        analysis: null
-      };
+      console.error('Update user embedding error:', error.message);
+      throw error;
     }
   }
 
-  /**
-   * Health check for AI service
-   * @returns {boolean} Service availability
-   */
-  async healthCheck() {
-    try {
-      const response = await axios.get(`${this.aiServiceUrl}/health`, {
-        timeout: 5000
-      });
-      return response.status === 200;
-    } catch (error) {
-      console.error('AI service health check failed:', error.message);
-      return false;
+  // Batch update embeddings for multiple users
+  async batchUpdateEmbeddings(userIds) {
+    const results = [];
+    
+    for (const userId of userIds) {
+      try {
+        const profile = await Profile.findOne({ userId });
+        if (profile) {
+          const embedding = await this.generateEmbedding({
+            skills: profile.skills,
+            experience: profile.experience,
+            projects: profile.projects,
+            bio: profile.bio,
+            education: profile.education
+          });
+          
+          await Profile.findOneAndUpdate(
+            { userId },
+            { aiEmbedding: embedding }
+          );
+          
+          results.push({ userId, success: true });
+        }
+      } catch (error) {
+        console.error(`Batch update error for user ${userId}:`, error.message);
+        results.push({ userId, success: false, error: error.message });
+      }
     }
+    
+    return results;
   }
 }
 

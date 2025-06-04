@@ -1,461 +1,373 @@
 // src/services/matchmakingService.js
 const Profile = require('../models/Profile');
 const User = require('../models/User');
-const Team = require('../models/Team');
-const Hackathon = require('../models/Hackathon');
 const Match = require('../models/Match');
+const Hackathon = require('../models/Hackathon');
 const aiService = require('./aiService');
 const cacheService = require('./cacheService');
 
 class MatchmakingService {
-  /**
-   * Get AI-powered teammate suggestions for a user
-   * @param {string} userId - User ID requesting matches
-   * @param {string} hackathonId - Target hackathon ID
-   * @param {Object} filters - Additional filters
-   * @returns {Array} Array of matched user profiles
-   */
-  async getTeammatesSuggestions(userId, hackathonId, filters = {}) {
+  // Calculate skill similarity score between two profiles
+  calculateSkillSimilarity(skills1, skills2) {
+    if (!skills1?.length || !skills2?.length) return 0;
+    
+    const set1 = new Set(skills1.map(s => s.toLowerCase()));
+    const set2 = new Set(skills2.map(s => s.toLowerCase()));
+    
+    const intersection = new Set([...set1].filter(x => set2.has(x)));
+    const union = new Set([...set1, ...set2]);
+    
+    return intersection.size / union.size; // Jaccard similarity
+  }
+
+  // Calculate experience compatibility
+  calculateExperienceCompatibility(exp1, exp2) {
+    const getExperienceLevel = (experience) => {
+      if (!experience?.length) return 0;
+      return experience.reduce((total, exp) => {
+        const years = exp.duration?.match(/(\d+)/)?.[0] || 1;
+        return total + parseInt(years);
+      }, 0);
+    };
+
+    const level1 = getExperienceLevel(exp1);
+    const level2 = getExperienceLevel(exp2);
+    
+    // Prefer similar experience levels
+    const diff = Math.abs(level1 - level2);
+    return Math.max(0, 1 - (diff / 10)); // Normalize to 0-1
+  }
+
+  // Calculate location proximity score
+  calculateLocationScore(loc1, loc2) {
+    if (!loc1 || !loc2) return 0.5; // Neutral if location unknown
+    
+    if (loc1.city === loc2.city) return 1.0;
+    if (loc1.country === loc2.country) return 0.7;
+    return 0.3; // Different countries
+  }
+
+  // Calculate project similarity
+  calculateProjectSimilarity(projects1, projects2) {
+    if (!projects1?.length || !projects2?.length) return 0;
+    
+    const extractTechnologies = (projects) => {
+      return projects.flatMap(p => p.technologies || []).map(t => t.toLowerCase());
+    };
+
+    const tech1 = extractTechnologies(projects1);
+    const tech2 = extractTechnologies(projects2);
+    
+    return this.calculateSkillSimilarity(tech1, tech2);
+  }
+
+  // Main matching algorithm using multiple factors
+  async calculateCompatibilityScore(profile1, profile2, hackathon = null) {
+    const weights = {
+      skills: 0.4,
+      experience: 0.2,
+      location: 0.15,
+      projects: 0.15,
+      embedding: 0.1
+    };
+
+    const scores = {
+      skills: this.calculateSkillSimilarity(profile1.skills, profile2.skills),
+      experience: this.calculateExperienceCompatibility(profile1.experience, profile2.experience),
+      location: this.calculateLocationScore(profile1.location, profile2.location),
+      projects: this.calculateProjectSimilarity(profile1.projects, profile2.projects),
+      embedding: 0 // Will be calculated if embeddings exist
+    };
+
+    // Use AI embeddings if available
+    if (profile1.aiEmbedding?.length && profile2.aiEmbedding?.length) {
+      scores.embedding = this.calculateCosineSimilarity(profile1.aiEmbedding, profile2.aiEmbedding);
+    }
+
+    // Adjust weights based on hackathon requirements
+    if (hackathon?.categories?.length) {
+      const relevantSkills1 = profile1.skills?.filter(skill => 
+        hackathon.categories.some(cat => skill.toLowerCase().includes(cat.toLowerCase()))
+      ) || [];
+      const relevantSkills2 = profile2.skills?.filter(skill => 
+        hackathon.categories.some(cat => skill.toLowerCase().includes(cat.toLowerCase()))
+      ) || [];
+      
+      if (relevantSkills1.length > 0 || relevantSkills2.length > 0) {
+        weights.skills += 0.1; // Boost skill importance for relevant hackathons
+      }
+    }
+
+    // Calculate weighted score
+    const totalScore = Object.keys(scores).reduce((total, key) => {
+      return total + (scores[key] * weights[key]);
+    }, 0);
+
+    return {
+      totalScore: Math.round(totalScore * 100) / 100,
+      breakdown: scores
+    };
+  }
+
+  // Calculate cosine similarity between two vectors
+  calculateCosineSimilarity(vec1, vec2) {
+    if (vec1.length !== vec2.length) return 0;
+    
+    let dotProduct = 0;
+    let norm1 = 0;
+    let norm2 = 0;
+    
+    for (let i = 0; i < vec1.length; i++) {
+      dotProduct += vec1[i] * vec2[i];
+      norm1 += vec1[i] * vec1[i];
+      norm2 += vec2[i] * vec2[i];
+    }
+    
+    return dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
+  }
+
+  // Find potential matches for a user
+  async findMatches(userId, hackathonId = null, limit = 10) {
     try {
       // Check cache first
-      const cacheKey = `matches:${userId}:${hackathonId}`;
-      const cachedMatches = await cacheService.get(cacheKey);
+      const cacheKey = `matches:${userId}:${hackathonId || 'all'}`;
+      const cachedMatches = await cacheService.getCachedMatches(cacheKey);
       if (cachedMatches) {
-        return JSON.parse(cachedMatches);
+        return cachedMatches;
       }
 
       // Get user's profile
-      const userProfile = await Profile.findOne({ userId }).populate('userId', 'firstName lastName profilePicture');
-      if (!userProfile || !userProfile.aiEmbedding) {
-        throw new Error('User profile not found or embedding not generated');
+      const userProfile = await Profile.findOne({ userId }).populate('userId');
+      if (!userProfile) {
+        throw new Error('User profile not found');
       }
 
-      // Get hackathon details
-      const hackathon = await Hackathon.findById(hackathonId);
-      if (!hackathon) {
-        throw new Error('Hackathon not found');
+      // Get hackathon info if specified
+      let hackathon = null;
+      if (hackathonId) {
+        hackathon = await Hackathon.findById(hackathonId);
       }
 
-      // Find potential matches using AI
-      const aiMatches = await aiService.findMatches(
-        userProfile.aiEmbedding,
-        hackathonId,
-        filters,
-        20 // Get more candidates for filtering
-      );
-
-      if (!aiMatches.success) {
-        throw new Error(aiMatches.error);
-      }
-
-      // Get detailed profiles for matched users
-      const matchedUserIds = aiMatches.matches.map(match => match.userId);
-      const matchedProfiles = await Profile.find({
-        userId: { $in: matchedUserIds, $ne: userId }
-      })
-      .populate('userId', 'firstName lastName profilePicture email')
-      .lean();
-
-      // Apply additional filters
-      let filteredProfiles = this.applyFilters(matchedProfiles, filters);
-
-      // Remove users who are already in teams for this hackathon
-      const existingTeamMembers = await Team.find({ hackathonId })
-        .select('members.userId')
-        .lean();
+      // Find potential matches
+      const matchQuery = { userId: { $ne: userId } };
       
-      const teamMemberIds = new Set();
-      existingTeamMembers.forEach(team => {
-        team.members.forEach(member => {
-          teamMemberIds.add(member.userId.toString());
-        });
-      });
+      // Filter by hackathon relevance if specified
+      if (hackathon?.categories?.length) {
+        matchQuery.skills = { 
+          $in: hackathon.categories.map(cat => new RegExp(cat, 'i'))
+        };
+      }
 
-      filteredProfiles = filteredProfiles.filter(profile => 
-        !teamMemberIds.has(profile.userId._id.toString())
-      );
+      const potentialMatches = await Profile.find(matchQuery)
+        .populate('userId', 'firstName lastName profilePicture')
+        .limit(limit * 3); // Get more candidates for better filtering
 
-      // Calculate final compatibility scores and format response
-      const suggestions = await Promise.all(
-        filteredProfiles.slice(0, 10).map(async (profile) => {
-          const compatibility = await this.calculateDetailedCompatibility(
-            userProfile,
-            profile,
+      // Calculate compatibility scores
+      const scoredMatches = await Promise.all(
+        potentialMatches.map(async (profile) => {
+          const compatibility = await this.calculateCompatibilityScore(
+            userProfile, 
+            profile, 
             hackathon
           );
-
+          
           return {
             userId: profile.userId._id,
-            name: `${profile.userId.firstName} ${profile.userId.lastName}`,
-            profilePicture: profile.userId.profilePicture,
-            bio: profile.bio,
-            skills: profile.skills,
-            location: profile.location,
-            experience: profile.experience,
-            projects: profile.projects.slice(0, 3), // Limit projects
-            compatibilityScore: compatibility.overall,
-            compatibilityBreakdown: compatibility.breakdown,
-            completionScore: profile.completionScore,
-            socialLinks: {
-              github: profile.socialLinks?.github,
-              linkedin: profile.socialLinks?.linkedin,
-              portfolio: profile.socialLinks?.portfolio
-            }
+            userInfo: {
+              firstName: profile.userId.firstName,
+              lastName: profile.userId.lastName,
+              profilePicture: profile.userId.profilePicture
+            },
+            profile: {
+              bio: profile.bio,
+              skills: profile.skills,
+              location: profile.location,
+              completionScore: profile.completionScore
+            },
+            compatibility: compatibility.totalScore,
+            breakdown: compatibility.breakdown,
+            lastActive: profile.updatedAt
           };
         })
       );
 
-      // Sort by compatibility score
-      suggestions.sort((a, b) => b.compatibilityScore - a.compatibilityScore);
+      // Sort by compatibility and filter
+      const matches = scoredMatches
+        .filter(match => match.compatibility > 0.3) // Only show meaningful matches
+        .sort((a, b) => b.compatibility - a.compatibility)
+        .slice(0, limit);
 
-      // Cache results for 1 hour
-      await cacheService.set(cacheKey, JSON.stringify(suggestions), 3600);
-
-      return suggestions;
-    } catch (error) {
-      console.error('Error getting teammate suggestions:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Apply filters to matched profiles
-   * @param {Array} profiles - Array of user profiles
-   * @param {Object} filters - Filter criteria
-   * @returns {Array} Filtered profiles
-   */
-  applyFilters(profiles, filters) {
-    let filtered = [...profiles];
-
-    // Filter by skills
-    if (filters.requiredSkills && filters.requiredSkills.length > 0) {
-      filtered = filtered.filter(profile => 
-        filters.requiredSkills.some(skill => 
-          profile.skills.some(userSkill => 
-            userSkill.toLowerCase().includes(skill.toLowerCase())
-          )
-        )
-      );
-    }
-
-    // Filter by experience level
-    if (filters.experienceLevel && filters.experienceLevel !== 'any') {
-      filtered = filtered.filter(profile => {
-        const experienceYears = this.calculateExperienceYears(profile.experience);
-        switch (filters.experienceLevel) {
-          case 'beginner': return experienceYears <= 2;
-          case 'intermediate': return experienceYears > 2 && experienceYears <= 5;
-          case 'senior': return experienceYears > 5;
-          default: return true;
-        }
-      });
-    }
-
-    // Filter by location
-    if (filters.location && filters.location.city) {
-      filtered = filtered.filter(profile => 
-        profile.location?.city?.toLowerCase() === filters.location.city.toLowerCase()
-      );
-    }
-
-    // Filter by minimum completion score
-    if (filters.minCompletionScore) {
-      filtered = filtered.filter(profile => 
-        profile.completionScore >= filters.minCompletionScore
-      );
-    }
-
-    return filtered;
-  }
-
-  /**
-   * Calculate detailed compatibility between two users
-   * @param {Object} userProfile1 - First user's profile
-   * @param {Object} userProfile2 - Second user's profile
-   * @param {Object} hackathon - Hackathon details
-   * @returns {Object} Compatibility scores
-   */
-  async calculateDetailedCompatibility(userProfile1, userProfile2, hackathon) {
-    try {
-      // Skill compatibility
-      const skillCompatibility = this.calculateSkillCompatibility(
-        userProfile1.skills,
-        userProfile2.skills
-      );
-
-      // Experience compatibility
-      const experienceCompatibility = this.calculateExperienceCompatibility(
-        userProfile1.experience,
-        userProfile2.experience
-      );
-
-      // Project compatibility
-      const projectCompatibility = this.calculateProjectCompatibility(
-        userProfile1.projects,
-        userProfile2.projects,
-        hackathon.technologies
-      );
-
-      // Location compatibility
-      const locationCompatibility = this.calculateLocationCompatibility(
-        userProfile1.location,
-        userProfile2.location
-      );
-
-      // AI-based compatibility (if available)
-      let aiCompatibility = 0.5; // Default neutral score
-      if (userProfile1.aiEmbedding && userProfile2.aiEmbedding) {
-        const aiResult = await aiService.calculateCompatibility(
-          userProfile1.aiEmbedding,
-          userProfile2.aiEmbedding
-        );
-        if (aiResult.success) {
-          aiCompatibility = aiResult.score;
-        }
-      }
-
-      // Weighted overall score
-      const weights = {
-        skills: 0.3,
-        experience: 0.2,
-        projects: 0.2,
-        location: 0.1,
-        ai: 0.2
-      };
-
-      const overall = (
-        skillCompatibility * weights.skills +
-        experienceCompatibility * weights.experience +
-        projectCompatibility * weights.projects +
-        locationCompatibility * weights.location +
-        aiCompatibility * weights.ai
-      );
-
-      return {
-        overall: Math.round(overall * 100) / 100,
-        breakdown: {
-          skills: skillCompatibility,
-          experience: experienceCompatibility,
-          projects: projectCompatibility,
-          location: locationCompatibility,
-          ai: aiCompatibility
-        }
-      };
-    } catch (error) {
-      console.error('Error calculating compatibility:', error);
-      return {
-        overall: 0.5,
-        breakdown: {
-          skills: 0.5,
-          experience: 0.5,
-          projects: 0.5,
-          location: 0.5,
-          ai: 0.5
-        }
-      };
-    }
-  }
-
-  /**
-   * Calculate skill compatibility between two users
-   * @param {Array} skills1 - First user's skills
-   * @param {Array} skills2 - Second user's skills
-   * @returns {number} Compatibility score (0-1)
-   */
-  calculateSkillCompatibility(skills1, skills2) {
-    if (!skills1?.length || !skills2?.length) return 0.3;
-
-    const normalizedSkills1 = skills1.map(s => s.toLowerCase().trim());
-    const normalizedSkills2 = skills2.map(s => s.toLowerCase().trim());
-
-    // Calculate Jaccard similarity
-    const intersection = normalizedSkills1.filter(skill => 
-      normalizedSkills2.includes(skill)
-    ).length;
-
-    const union = new Set([...normalizedSkills1, ...normalizedSkills2]).size;
-    
-    // Ensure some complementary skills (not 100% overlap)
-    const jaccardSimilarity = intersection / union;
-    const complementarity = 1 - Math.abs(0.3 - jaccardSimilarity); // Optimal overlap around 30%
-    
-    return Math.min(jaccardSimilarity + complementarity * 0.5, 1);
-  }
-
-  /**
-   * Calculate experience compatibility
-   * @param {Array} exp1 - First user's experience
-   * @param {Array} exp2 - Second user's experience
-   * @returns {number} Compatibility score (0-1)
-   */
-  calculateExperienceCompatibility(exp1, exp2) {
-    const years1 = this.calculateExperienceYears(exp1);
-    const years2 = this.calculateExperienceYears(exp2);
-
-    // Prefer balanced experience levels
-    const avgYears = (years1 + years2) / 2;
-    const yearsDiff = Math.abs(years1 - years2);
-
-    // Score based on experience balance
-    if (yearsDiff <= 2) return 0.9; // Very similar experience
-    if (yearsDiff <= 4) return 0.7; // Moderately different
-    if (yearsDiff <= 6) return 0.5; // Different but can work
-    return 0.3; // Very different experience levels
-  }
-
-  /**
-   * Calculate project compatibility
-   * @param {Array} projects1 - First user's projects
-   * @param {Array} projects2 - Second user's projects
-   * @param {Array} hackathonTech - Hackathon technologies
-   * @returns {number} Compatibility score (0-1)
-   */
-  calculateProjectCompatibility(projects1, projects2, hackathonTech = []) {
-    if (!projects1?.length && !projects2?.length) return 0.5;
-
-    const allTech1 = this.extractTechnologiesFromProjects(projects1);
-    const allTech2 = this.extractTechnologiesFromProjects(projects2);
-
-    // Check relevance to hackathon
-    const hackathonRelevance1 = this.calculateHackathonRelevance(allTech1, hackathonTech);
-    const hackathonRelevance2 = this.calculateHackathonRelevance(allTech2, hackathonTech);
-
-    // Check complementarity
-    const techOverlap = this.calculateSkillCompatibility(allTech1, allTech2);
-
-    return (hackathonRelevance1 + hackathonRelevance2 + techOverlap) / 3;
-  }
-
-  /**
-   * Calculate location compatibility
-   * @param {Object} loc1 - First user's location
-   * @param {Object} loc2 - Second user's location
-   * @returns {number} Compatibility score (0-1)
-   */
-  calculateLocationCompatibility(loc1, loc2) {
-    if (!loc1 || !loc2) return 0.5;
-
-    if (loc1.city === loc2.city && loc1.country === loc2.country) return 1.0;
-    if (loc1.country === loc2.country) return 0.7;
-    return 0.3;
-  }
-
-  /**
-   * Extract technologies from projects
-   * @param {Array} projects - Array of projects
-   * @returns {Array} Array of technologies
-   */
-  extractTechnologiesFromProjects(projects) {
-    if (!projects?.length) return [];
-    return projects.flatMap(project => project.technologies || []);
-  }
-
-  /**
-   * Calculate hackathon relevance score
-   * @param {Array} userTech - User's technologies
-   * @param {Array} hackathonTech - Hackathon technologies
-   * @returns {number} Relevance score (0-1)
-   */
-  calculateHackathonRelevance(userTech, hackathonTech) {
-    if (!hackathonTech?.length) return 0.5;
-    if (!userTech?.length) return 0.2;
-
-    const matches = userTech.filter(tech => 
-      hackathonTech.some(hTech => 
-        tech.toLowerCase().includes(hTech.toLowerCase()) ||
-        hTech.toLowerCase().includes(tech.toLowerCase())
-      )
-    ).length;
-
-    return Math.min(matches / hackathonTech.length, 1);
-  }
-
-  /**
-   * Calculate total years of experience
-   * @param {Array} experience - Experience array
-   * @returns {number} Years of experience
-   */
-  calculateExperienceYears(experience) {
-    if (!experience?.length) return 0;
-
-    return experience.reduce((total, exp) => {
-      if (exp.duration) {
-        const years = this.parseDurationToYears(exp.duration);
-        return total + years;
-      }
-      return total;
-    }, 0);
-  }
-
-  /**
-   * Parse duration string to years
-   * @param {string} duration - Duration string (e.g., "2 years", "6 months")
-   * @returns {number} Years
-   */
-  parseDurationToYears(duration) {
-    const lowerDuration = duration.toLowerCase();
-    
-    // Extract numbers
-    const numbers = lowerDuration.match(/\d+/g);
-    if (!numbers) return 0;
-
-    const num = parseInt(numbers[0]);
-    
-    if (lowerDuration.includes('year')) return num;
-    if (lowerDuration.includes('month')) return num / 12;
-    if (lowerDuration.includes('week')) return num / 52;
-    
-    return 0;
-  }
-
-  /**
-   * Save match feedback for AI learning
-   * @param {string} userId - User who provided feedback
-   * @param {string} matchedUserId - Matched user ID
-   * @param {string} hackathonId - Hackathon ID
-   * @param {string} feedback - 'like' or 'dislike'
-   * @param {string} reason - Optional reason
-   */
-  async saveMatchFeedback(userId, matchedUserId, hackathonId, feedback, reason = null) {
-    try {
-      await Match.findOneAndUpdate(
-        { userId, matchedUserId, hackathonId },
-        {
-          feedback,
-          feedbackReason: reason,
-          feedbackAt: new Date()
-        },
-        { upsert: true }
-      );
-
-      // Invalidate cache for this user
-      await cacheService.delete(`matches:${userId}:${hackathonId}`);
-    } catch (error) {
-      console.error('Error saving match feedback:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get match history for a user
-   * @param {string} userId - User ID
-   * @param {number} limit - Number of matches to return
-   * @returns {Array} Match history
-   */
-  async getMatchHistory(userId, limit = 50) {
-    try {
-      const matches = await Match.find({ userId })
-        .populate('matchedUserId', 'firstName lastName profilePicture')
-        .populate('hackathonId', 'title')
-        .sort({ createdAt: -1 })
-        .limit(limit)
-        .lean();
+      // Cache results
+      await cacheService.cacheUserMatches(cacheKey, matches, 3600); // 1 hour
 
       return matches;
     } catch (error) {
-      console.error('Error getting match history:', error);
+      console.error('Error finding matches:', error);
       throw error;
     }
+  }
+
+  // Update matches for a user (called after profile changes)
+  async updateUserMatches(userId) {
+    try {
+      // Clear existing caches
+      await cacheService.invalidateUserCache(userId);
+      
+      // Pre-compute matches for active hackathons
+      const activeHackathons = await Hackathon.find({ 
+        status: { $in: ['upcoming', 'ongoing'] }
+      }).select('_id').limit(5);
+
+      for (const hackathon of activeHackathons) {
+        await this.findMatches(userId, hackathon._id, 10);
+      }
+
+      // Also compute general matches
+      await this.findMatches(userId, null, 15);
+      
+      console.log(`Updated matches for user: ${userId}`);
+    } catch (error) {
+      console.error('Error updating user matches:', error);
+    }
+  }
+
+  // Store match feedback for improving algorithm
+  async recordMatchFeedback(userId, matchedUserId, feedback, hackathonId = null) {
+    try {
+      const matchRecord = new Match({
+        fromUserId: userId,
+        toUserId: matchedUserId,
+        hackathonId,
+        feedback: {
+          rating: feedback.rating,
+          interested: feedback.interested,
+          reason: feedback.reason
+        },
+        timestamp: new Date()
+      });
+
+      await matchRecord.save();
+
+      // Invalidate cache to reflect feedback
+      const cacheKey = `matches:${userId}:${hackathonId || 'all'}`;
+      await cacheService.invalidateCache(cacheKey);
+
+      return matchRecord;
+    } catch (error) {
+      console.error('Error recording match feedback:', error);
+      throw error;
+    }
+  }
+
+  // Get match statistics for a user
+  async getMatchStats(userId) {
+    try {
+      const stats = await Match.aggregate([
+        { $match: { fromUserId: userId } },
+        {
+          $group: {
+            _id: null,
+            totalMatches: { $sum: 1 },
+            avgRating: { $avg: '$feedback.rating' },
+            interestedCount: { 
+              $sum: { $cond: ['$feedback.interested', 1, 0] } 
+            }
+          }
+        }
+      ]);
+
+      return stats[0] || {
+        totalMatches: 0,
+        avgRating: 0,
+        interestedCount: 0
+      };
+    } catch (error) {
+      console.error('Error getting match stats:', error);
+      return { totalMatches: 0, avgRating: 0, interestedCount: 0 };
+    }
+  }
+
+  // Get detailed compatibility analysis between two users
+  async getDetailedCompatibility(userId1, userId2, hackathonId = null) {
+    try {
+      const [profile1, profile2] = await Promise.all([
+        Profile.findOne({ userId: userId1 }).populate('userId'),
+        Profile.findOne({ userId: userId2 }).populate('userId')
+      ]);
+
+      if (!profile1 || !profile2) {
+        throw new Error('One or both profiles not found');
+      }
+
+      let hackathon = null;
+      if (hackathonId) {
+        hackathon = await Hackathon.findById(hackathonId);
+      }
+
+      const compatibility = await this.calculateCompatibilityScore(
+        profile1, 
+        profile2, 
+        hackathon
+      );
+
+      return {
+        users: [
+          {
+            id: profile1.userId._id,
+            name: `${profile1.userId.firstName} ${profile1.userId.lastName}`,
+            skills: profile1.skills,
+            location: profile1.location
+          },
+          {
+            id: profile2.userId._id,
+            name: `${profile2.userId.firstName} ${profile2.userId.lastName}`,
+            skills: profile2.skills,
+            location: profile2.location
+          }
+        ],
+        compatibility: compatibility.totalScore,
+        breakdown: compatibility.breakdown,
+        recommendations: this.generateCompatibilityRecommendations(compatibility.breakdown)
+      };
+    } catch (error) {
+      console.error('Error getting detailed compatibility:', error);
+      throw error;
+    }
+  }
+
+  // Generate recommendations based on compatibility breakdown
+  generateCompatibilityRecommendations(breakdown) {
+    const recommendations = [];
+
+    if (breakdown.skills < 0.3) {
+      recommendations.push({
+        type: 'skills',
+        message: 'Consider learning complementary skills to improve collaboration potential'
+      });
+    }
+
+    if (breakdown.experience < 0.4) {
+      recommendations.push({
+        type: 'experience',
+        message: 'Different experience levels can be beneficial - mentor/mentee opportunities'
+      });
+    }
+
+    if (breakdown.location < 0.5) {
+      recommendations.push({
+        type: 'location',
+        message: 'Remote collaboration tools will be important for this partnership'
+      });
+    }
+
+    if (breakdown.projects > 0.7) {
+      recommendations.push({
+        type: 'projects',
+        message: 'Strong project similarity - great potential for shared interests'
+      });
+    }
+
+    return recommendations;
   }
 }
 

@@ -1,500 +1,248 @@
+// src/controllers/profileController.js
 const Profile = require('../models/Profile');
 const User = require('../models/User');
-const { validationResult } = require('express-validator');
-const aiService = require('../services/aiService');
-const resumeParserService = require('../services/resumeParserService');
-const linkedinService = require('../services/linkedinService');
-const cacheService = require('../services/cacheService');
-const cloudinary = require('../config/cloudinary');
-const multer = require('multer');
 
-// @desc    Get current user's profile
-// @route   GET /api/profiles/me
-// @access  Private
-const getMyProfile = async (req, res, next) => {
+// Get current user's profile
+const getMyProfile = async (req, res) => {
   try {
-    const profile = await Profile.findOne({ userId: req.user.id });
+    const userId = req.user._id;
+    
+    let profile = await Profile.findOne({ userId }).populate('userId', 'firstName lastName email profilePicture');
     
     if (!profile) {
-      return res.status(404).json({
-        success: false,
-        message: 'Profile not found'
+      // Create empty profile if doesn't exist
+      profile = new Profile({
+        userId,
+        bio: '',
+        skills: [],
+        experience: [],
+        education: [],
+        projects: [],
+        socialLinks: {},
+        location: {},
+        completionScore: 0
       });
+      await profile.save();
+      await profile.populate('userId', 'firstName lastName email profilePicture');
     }
 
-    res.status(200).json({
-      success: true,
-      data: profile
-    });
+    res.json(profile);
   } catch (error) {
-    next(error);
+    console.error('Get my profile error:', error);
+    res.status(500).json({ error: 'Server error' });
   }
 };
 
-// @desc    Create or update user profile
-// @route   PUT /api/profiles/me
-// @access  Private
-const updateProfile = async (req, res, next) => {
+// Update current user's profile
+const updateMyProfile = async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
-    }
-
-    const {
-      bio,
-      skills,
-      experience,
-      education,
-      projects,
-      socialLinks,
-      location,
-      availability,
-      interests
-    } = req.body;
-
-    const profileData = {
-      userId: req.user.id,
-      bio,
-      skills: skills || [],
-      experience: experience || [],
-      education: education || [],
-      projects: projects || [],
-      socialLinks: socialLinks || {},
-      location: location || {},
-      availability,
-      interests: interests || []
-    };
+    const userId = req.user._id;
+    const updateData = req.body;
 
     // Calculate completion score
-    profileData.completionScore = calculateCompletionScore(profileData);
-
-    // Generate AI embedding if skills or experience changed
-    let embedding = null;
-    if (skills || experience || projects) {
-      try {
-        embedding = await aiService.generateEmbedding({
-          skills: profileData.skills,
-          experience: profileData.experience,
-          projects: profileData.projects
-        });
-        profileData.aiEmbedding = embedding;
-      } catch (error) {
-        console.error('AI embedding generation failed:', error);
-      }
-    }
+    const completionScore = calculateCompletionScore(updateData);
+    updateData.completionScore = completionScore;
 
     const profile = await Profile.findOneAndUpdate(
-      { userId: req.user.id },
-      profileData,
+      { userId },
+      updateData,
       { 
         new: true, 
         upsert: true, 
         runValidators: true 
       }
-    );
+    ).populate('userId', 'firstName lastName email profilePicture');
 
-    // Invalidate cache for user matches
-    await cacheService.invalidateUserCache(req.user.id);
-
-    res.status(200).json({
-      success: true,
+    res.json({
       message: 'Profile updated successfully',
-      data: profile
+      profile
     });
   } catch (error) {
-    next(error);
+    console.error('Update profile error:', error);
+    res.status(500).json({ error: 'Server error' });
   }
 };
 
-// @desc    Get public profile by user ID
-// @route   GET /api/profiles/:userId
-// @access  Private
-const getPublicProfile = async (req, res, next) => {
+// Get public profile of any user
+const getPublicProfile = async (req, res) => {
   try {
     const { userId } = req.params;
 
-    const user = await User.findById(userId)
-      .select('firstName lastName profilePicture createdAt');
+    const profile = await Profile.findOne({ userId }).populate('userId', 'firstName lastName profilePicture');
     
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+    if (!profile) {
+      return res.status(404).json({ error: 'Profile not found' });
     }
 
-    const profile = await Profile.findOne({ userId })
-      .select('-aiEmbedding'); // Don't expose AI embeddings
-
+    // Remove sensitive information for public view
     const publicProfile = {
-      user: {
-        id: user._id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        profilePicture: user.profilePicture,
-        memberSince: user.createdAt
-      },
-      profile: profile || null
+      _id: profile._id,
+      userId: profile.userId,
+      bio: profile.bio,
+      skills: profile.skills,
+      experience: profile.experience,
+      education: profile.education,
+      projects: profile.projects,
+      socialLinks: profile.socialLinks,
+      location: profile.location,
+      completionScore: profile.completionScore,
+      createdAt: profile.createdAt
     };
 
-    res.status(200).json({
-      success: true,
-      data: publicProfile
-    });
+    res.json(publicProfile);
   } catch (error) {
-    next(error);
+    console.error('Get public profile error:', error);
+    res.status(500).json({ error: 'Server error' });
   }
 };
 
-// @desc    Upload and parse resume
-// @route   POST /api/profiles/upload-resume
-// @access  Private
-const uploadResume = async (req, res, next) => {
+// Upload and parse resume
+const uploadResume = async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: 'No resume file uploaded'
-      });
+      return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    // Upload to Cloudinary
-    const result = await cloudinary.uploader.upload(req.file.path, {
-      resource_type: 'auto',
-      folder: 'hackmates/resumes',
-      public_id: `resume_${req.user.id}_${Date.now()}`
-    });
+    const userId = req.user._id;
+    const resumeUrl = req.file.path; // Cloudinary URL
 
-    // Parse resume using AI service
-    let parsedData = {};
-    try {
-      parsedData = await resumeParserService.parseResume(req.file.buffer);
-    } catch (parseError) {
-      console.error('Resume parsing failed:', parseError);
-      // Continue with manual upload even if parsing fails
-    }
-
-    // Update profile with resume URL and parsed data
-    const updateData = {
-      resumeUrl: result.secure_url,
-      ...parsedData
-    };
-
-    // Generate AI embedding if we have parsed data
-    if (parsedData.skills || parsedData.experience) {
-      try {
-        const embedding = await aiService.generateEmbedding(parsedData);
-        updateData.aiEmbedding = embedding;
-      } catch (embeddingError) {
-        console.error('Embedding generation failed:', embeddingError);
-      }
-    }
-
-    // Calculate completion score
-    const existingProfile = await Profile.findOne({ userId: req.user.id });
-    const mergedData = { ...existingProfile?.toObject(), ...updateData };
-    updateData.completionScore = calculateCompletionScore(mergedData);
-
-    const profile = await Profile.findOneAndUpdate(
-      { userId: req.user.id },
-      updateData,
-      { new: true, upsert: true }
+    // Update profile with resume URL
+    await Profile.findOneAndUpdate(
+      { userId },
+      { resumeUrl },
+      { upsert: true }
     );
 
-    // Invalidate cache
-    await cacheService.invalidateUserCache(req.user.id);
+    // TODO: Integrate with AI service to parse resume
+    // const parsedData = await aiService.parseResume(resumeUrl);
+    // const embedding = await aiService.generateEmbedding(parsedData);
 
-    res.status(200).json({
-      success: true,
-      message: 'Resume uploaded and processed successfully',
-      data: {
-        resumeUrl: result.secure_url,
-        parsedData: parsedData,
-        profile: profile
-      }
+    res.json({
+      message: 'Resume uploaded successfully',
+      resumeUrl
     });
   } catch (error) {
-    next(error);
+    console.error('Upload resume error:', error);
+    res.status(500).json({ error: 'Server error' });
   }
 };
 
-// @desc    Import LinkedIn profile data
-// @route   POST /api/profiles/linkedin
-// @access  Private
-const importLinkedIn = async (req, res, next) => {
+// Calculate profile completion score
+const calculateCompletion = async (req, res) => {
   try {
-    const { linkedinUrl } = req.body;
+    const userId = req.user._id;
+    const profile = await Profile.findOne({ userId });
 
-    if (!linkedinUrl) {
-      return res.status(400).json({
-        success: false,
-        message: 'LinkedIn URL is required'
-      });
+    if (!profile) {
+      return res.json({ completionScore: 0 });
     }
 
-    // Scrape LinkedIn data
-    let linkedinData = {};
-    try {
-      linkedinData = await linkedinService.scrapeProfile(linkedinUrl);
-    } catch (scrapeError) {
-      return res.status(400).json({
-        success: false,
-        message: 'Failed to import LinkedIn data. Please check the URL and try again.'
-      });
-    }
-
-    // Merge with existing profile
-    const existingProfile = await Profile.findOne({ userId: req.user.id });
-    const mergedData = mergeProfileData(existingProfile, linkedinData);
-
-    // Generate AI embedding
-    let embedding = null;
-    try {
-      embedding = await aiService.generateEmbedding({
-        skills: mergedData.skills,
-        experience: mergedData.experience,
-        projects: mergedData.projects
-      });
-      mergedData.aiEmbedding = embedding;
-    } catch (embeddingError) {
-      console.error('Embedding generation failed:', embeddingError);
-    }
-
-    // Calculate completion score
-    mergedData.completionScore = calculateCompletionScore(mergedData);
-
-    const profile = await Profile.findOneAndUpdate(
-      { userId: req.user.id },
-      mergedData,
-      { new: true, upsert: true }
+    const completionScore = calculateCompletionScore(profile);
+    
+    // Update the score in database
+    await Profile.findOneAndUpdate(
+      { userId },
+      { completionScore }
     );
 
-    // Invalidate cache
-    await cacheService.invalidateUserCache(req.user.id);
-
-    res.status(200).json({
-      success: true,
-      message: 'LinkedIn data imported successfully',
-      data: {
-        importedData: linkedinData,
-        profile: profile
-      }
-    });
+    res.json({ completionScore });
   } catch (error) {
-    next(error);
+    console.error('Calculate completion error:', error);
+    res.status(500).json({ error: 'Server error' });
   }
 };
 
-// @desc    Get profile completion suggestions
-// @route   GET /api/profiles/suggestions
-// @access  Private
-const getCompletionSuggestions = async (req, res, next) => {
-  try {
-    const profile = await Profile.findOne({ userId: req.user.id });
-    
-    const suggestions = [];
-
-    if (!profile) {
-      suggestions.push({
-        field: 'profile',
-        message: 'Create your profile to get started',
-        priority: 'high'
-      });
-    } else {
-      // Check missing fields
-      if (!profile.bio || profile.bio.length < 50) {
-        suggestions.push({
-          field: 'bio',
-          message: 'Add a compelling bio (at least 50 characters)',
-          priority: 'high'
-        });
-      }
-
-      if (!profile.skills || profile.skills.length < 3) {
-        suggestions.push({
-          field: 'skills',
-          message: 'Add at least 3 technical skills',
-          priority: 'high'
-        });
-      }
-
-      if (!profile.experience || profile.experience.length === 0) {
-        suggestions.push({
-          field: 'experience',
-          message: 'Add your work or project experience',
-          priority: 'medium'
-        });
-      }
-
-      if (!profile.projects || profile.projects.length === 0) {
-        suggestions.push({
-          field: 'projects',
-          message: 'Showcase your projects to attract teammates',
-          priority: 'high'
-        });
-      }
-
-      if (!profile.socialLinks?.github) {
-        suggestions.push({
-          field: 'socialLinks.github',
-          message: 'Add your GitHub profile',
-          priority: 'medium'
-        });
-      }
-
-      if (!profile.location?.city) {
-        suggestions.push({
-          field: 'location',
-          message: 'Add your location for better matching',
-          priority: 'low'
-        });
-      }
-
-      if (!profile.resumeUrl) {
-        suggestions.push({
-          field: 'resume',
-          message: 'Upload your resume for better profile parsing',
-          priority: 'medium'
-        });
-      }
-    }
-
-    const completionScore = profile ? profile.completionScore || 0 : 0;
-
-    res.status(200).json({
-      success: true,
-      data: {
-        completionScore,
-        suggestions,
-        totalSuggestions: suggestions.length
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// @desc    Get skill suggestions based on profile
-// @route   GET /api/profiles/skill-suggestions
-// @access  Private
-const getSkillSuggestions = async (req, res, next) => {
-  try {
-    const profile = await Profile.findOne({ userId: req.user.id });
-    
-    if (!profile) {
-      return res.status(404).json({
-        success: false,
-        message: 'Profile not found'
-      });
-    }
-
-    // Get skill suggestions from AI service
-    let suggestedSkills = [];
-    try {
-      suggestedSkills = await aiService.suggestSkills({
-        currentSkills: profile.skills || [],
-        experience: profile.experience || [],
-        projects: profile.projects || []
-      });
-    } catch (error) {
-      console.error('Skill suggestion failed:', error);
-      // Fallback to basic suggestions
-      suggestedSkills = getBasicSkillSuggestions(profile.skills || []);
-    }
-
-    res.status(200).json({
-      success: true,
-      data: {
-        suggestedSkills,
-        currentSkills: profile.skills || []
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// Helper function to calculate profile completion score
+// Helper function to calculate completion score
 const calculateCompletionScore = (profileData) => {
   let score = 0;
   const maxScore = 100;
 
-  // Bio (20 points)
-  if (profileData.bio && profileData.bio.length >= 50) score += 20;
-  else if (profileData.bio && profileData.bio.length >= 20) score += 10;
+  // Bio (10 points)
+  if (profileData.bio && profileData.bio.trim().length > 0) {
+    score += 10;
+  }
 
   // Skills (20 points)
-  if (profileData.skills && profileData.skills.length >= 5) score += 20;
-  else if (profileData.skills && profileData.skills.length >= 3) score += 15;
-  else if (profileData.skills && profileData.skills.length >= 1) score += 10;
+  if (profileData.skills && profileData.skills.length > 0) {
+    score += Math.min(20, profileData.skills.length * 4); // 4 points per skill, max 20
+  }
 
-  // Experience (15 points)
-  if (profileData.experience && profileData.experience.length >= 2) score += 15;
-  else if (profileData.experience && profileData.experience.length >= 1) score += 10;
+  // Experience (25 points)
+  if (profileData.experience && profileData.experience.length > 0) {
+    score += Math.min(25, profileData.experience.length * 12); // 12 points per experience, max 25
+  }
 
-  // Projects (15 points)
-  if (profileData.projects && profileData.projects.length >= 3) score += 15;
-  else if (profileData.projects && profileData.projects.length >= 1) score += 10;
+  // Education (15 points)
+  if (profileData.education && profileData.education.length > 0) {
+    score += Math.min(15, profileData.education.length * 8); // 8 points per education, max 15
+  }
 
-  // Education (10 points)
-  if (profileData.education && profileData.education.length >= 1) score += 10;
+  // Projects (20 points)
+  if (profileData.projects && profileData.projects.length > 0) {
+    score += Math.min(20, profileData.projects.length * 10); // 10 points per project, max 20
+  }
 
-  // Social Links (10 points)
-  let socialScore = 0;
-  if (profileData.socialLinks?.github) socialScore += 5;
-  if (profileData.socialLinks?.linkedin) socialScore += 3;
-  if (profileData.socialLinks?.portfolio) socialScore += 2;
-  score += Math.min(socialScore, 10);
+  // Social Links (5 points)
+  if (profileData.socialLinks) {
+    const socialCount = Object.values(profileData.socialLinks).filter(link => link && link.trim().length > 0).length;
+    score += Math.min(5, socialCount * 2); // 2 points per social link, max 5
+  }
 
   // Location (5 points)
-  if (profileData.location?.city) score += 5;
-
-  // Resume (5 points)
-  if (profileData.resumeUrl) score += 5;
+  if (profileData.location && (profileData.location.city || profileData.location.country)) {
+    score += 5;
+  }
 
   return Math.min(score, maxScore);
 };
 
-// Helper function to merge profile data
-const mergeProfileData = (existingProfile, newData) => {
-  const existing = existingProfile ? existingProfile.toObject() : {};
-  
-  return {
-    ...existing,
-    ...newData,
-    skills: [...new Set([...(existing.skills || []), ...(newData.skills || [])])],
-    experience: newData.experience || existing.experience || [],
-    education: newData.education || existing.education || [],
-    projects: [...(existing.projects || []), ...(newData.projects || [])],
-    socialLinks: { ...existing.socialLinks, ...newData.socialLinks }
-  };
-};
+// Search profiles (for matching)
+const searchProfiles = async (req, res) => {
+  try {
+    const { skills, location, page = 1, limit = 10 } = req.query;
+    const userId = req.user._id;
 
-// Helper function for basic skill suggestions
-const getBasicSkillSuggestions = (currentSkills) => {
-  const allSkills = [
-    'JavaScript', 'Python', 'React', 'Node.js', 'MongoDB', 'SQL',
-    'HTML', 'CSS', 'Git', 'Docker', 'AWS', 'Machine Learning',
-    'Data Analysis', 'UI/UX Design', 'Flutter', 'React Native',
-    'Java', 'C++', 'TypeScript', 'GraphQL', 'Redis', 'PostgreSQL'
-  ];
+    const query = { userId: { $ne: userId } }; // Exclude current user
 
-  return allSkills
-    .filter(skill => !currentSkills.includes(skill))
-    .slice(0, 10);
+    if (skills) {
+      const skillsArray = skills.split(',').map(skill => skill.trim());
+      query.skills = { $in: skillsArray };
+    }
+
+    if (location) {
+      query.$or = [
+        { 'location.city': new RegExp(location, 'i') },
+        { 'location.country': new RegExp(location, 'i') }
+      ];
+    }
+
+    const profiles = await Profile.find(query)
+      .populate('userId', 'firstName lastName profilePicture')
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .sort({ completionScore: -1, createdAt: -1 });
+
+    const total = await Profile.countDocuments(query);
+
+    res.json({
+      profiles,
+      pagination: {
+        current: page,
+        pages: Math.ceil(total / limit),
+        total
+      }
+    });
+  } catch (error) {
+    console.error('Search profiles error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
 };
 
 module.exports = {
   getMyProfile,
-  updateProfile,
+  updateMyProfile,
   getPublicProfile,
   uploadResume,
-  importLinkedIn,
-  getCompletionSuggestions,
-  getSkillSuggestions
+  calculateCompletion,
+  searchProfiles
 };

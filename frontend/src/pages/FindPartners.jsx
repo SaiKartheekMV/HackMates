@@ -420,7 +420,7 @@ const FindPartners = () => {
               className="d-lg-none"
               onClick={() => setShowFilters(true)}
             >
-              <FaSliders className="me-2" />
+              <FaSlidersH className="me-2" />
               Filters
             </Button>
           </div>

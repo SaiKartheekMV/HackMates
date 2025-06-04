@@ -1,199 +1,228 @@
-const express = require('express');
-const cors = require('cors');
-const helmet = require('helmet');
-const compression = require('compression');
-const morgan = require('morgan');
-const rateLimit = require('express-rate-limit');
-const mongoSanitize = require('express-mongo-sanitize');
-const xss = require('xss-clean');
-const hpp = require('hpp');
-const { createServer } = require('http');
-const { Server } = require('socket.io');
+// server.js
 require('dotenv').config();
 
-// Import configurations
+const http = require('http');
+const socketIo = require('socket.io');
+const app = require('./src/app');
 const connectDB = require('./src/config/database');
-const { connectRedis } = require('./src/config/redis');
+const { connectRedis, getRedisClient, closeRedis } = require('./src/config/redis'); // Fixed import
+const mongoose = require('mongoose');
 
-// Import routes
-const authRoutes = require('./src/routes/auth');
-const userRoutes = require('./src/routes/users');
-const profileRoutes = require('./src/routes/profiles');
-const hackathonRoutes = require('./src/routes/hackathons');
-const matchmakingRoutes = require('./src/routes/matchmaking');
-const teamRoutes = require('./src/routes/teams');
-const requestRoutes = require('./src/routes/requests');
+// Import workers
+const matchUpdater = require('./src/workers/matchUpdater');
 
-// Import middleware
-const errorHandler = require('./src/middleware/errorHandler');
-const { authenticateSocket } = require('./src/middleware/auth');
+// Socket authentication middleware
+const socketAuth = require('./src/middleware/socketAuth');
 
-// Initialize Express app
-const app = express();
-const server = createServer(app);
+// Create HTTP server
+const server = http.createServer(app);
 
-// Initialize Socket.io
-const io = new Server(server, {
+// Socket.IO setup
+const io = socketIo(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+    origin: process.env.FRONTEND_URL || "http://localhost:3000",
     methods: ["GET", "POST"],
     credentials: true
-  }
+  },
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
-// Connect to databases
-connectDB();
-connectRedis();
+// Socket authentication
+io.use(socketAuth);
 
-// Security middleware
-app.use(helmet({
-  contentSecurityPolicy: false,
-  crossOriginEmbedderPolicy: false
-}));
-
-// CORS configuration
-app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:5173",
-  credentials: true,
-  optionsSuccessStatus: 200
-}));
-
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: {
-    error: 'Too many requests from this IP, please try again later.'
-  }
-});
-app.use('/api/', limiter);
-
-// Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Data sanitization
-app.use(mongoSanitize()); // Against NoSQL query injection
-app.use(xss()); // Against XSS attacks
-app.use(hpp()); // Prevent parameter pollution
-
-// Compression middleware
-app.use(compression());
-
-// Logging middleware
-if (process.env.NODE_ENV === 'development') {
-  app.use(morgan('dev'));
-} else {
-  app.use(morgan('combined'));
-}
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV,
-    version: process.env.npm_package_version || '1.0.0'
-  });
-});
-
-// API routes
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/profiles', profileRoutes);
-app.use('/api/hackathons', hackathonRoutes);
-app.use('/api/matchmaking', matchmakingRoutes);
-app.use('/api/teams', teamRoutes);
-app.use('/api/requests', requestRoutes);
-
-// Socket.io connection handling
-io.use(authenticateSocket);
-
+// Socket.IO connection handling
 io.on('connection', (socket) => {
-  console.log(`User ${socket.user.id} connected`);
-  
+  console.log(`👤 User connected: ${socket.userId}`);
+
   // Join user-specific room for notifications
-  socket.join(`user_${socket.user.id}`);
-  
+  socket.join(`user_${socket.userId}`);
+
   // Handle team room joining
-  socket.on('join-team', (teamId) => {
-    socket.join(`team_${teamId}`);
-    console.log(`User ${socket.user.id} joined team ${teamId}`);
+  socket.on('join-team-room', (teamId) => {
+    if (teamId) {
+      socket.join(`team_${teamId}`);
+      console.log(`👥 User ${socket.userId} joined team room: ${teamId}`);
+    }
   });
-  
+
   // Handle leaving team room
-  socket.on('leave-team', (teamId) => {
-    socket.leave(`team_${teamId}`);
-    console.log(`User ${socket.user.id} left team ${teamId}`);
+  socket.on('leave-team-room', (teamId) => {
+    if (teamId) {
+      socket.leave(`team_${teamId}`);
+      console.log(`👋 User ${socket.userId} left team room: ${teamId}`);
+    }
   });
-  
+
   // Handle hackathon room joining
-  socket.on('join-hackathon', (hackathonId) => {
-    socket.join(`hackathon_${hackathonId}`);
-    console.log(`User ${socket.user.id} joined hackathon ${hackathonId}`);
+  socket.on('join-hackathon-room', (hackathonId) => {
+    if (hackathonId) {
+      socket.join(`hackathon_${hackathonId}`);
+      console.log(`🏆 User ${socket.userId} joined hackathon room: ${hackathonId}`);
+    }
   });
-  
-  socket.on('disconnect', () => {
-    console.log(`User ${socket.user.id} disconnected`);
+
+  // Handle real-time typing indicators for team chat
+  socket.on('typing-start', (data) => {
+    if (data.teamId) {
+      socket.to(`team_${data.teamId}`).emit('user-typing', {
+        userId: socket.userId,
+        userName: socket.userName
+      });
+    }
+  });
+
+  socket.on('typing-stop', (data) => {
+    if (data.teamId) {
+      socket.to(`team_${data.teamId}`).emit('user-stopped-typing', {
+        userId: socket.userId
+      });
+    }
+  });
+
+  // Handle match feedback
+  socket.on('match-feedback', (data) => {
+    console.log(`👍 Match feedback from ${socket.userId}:`, data);
+    // Could be used to improve matching algorithm
+  });
+
+  // Handle user status updates
+  socket.on('update-status', (status) => {
+    socket.broadcast.emit('user-status-update', {
+      userId: socket.userId,
+      status: status
+    });
+  });
+
+  // Handle disconnection
+  socket.on('disconnect', (reason) => {
+    console.log(`👋 User disconnected: ${socket.userId}, reason: ${reason}`);
+  });
+
+  // Error handling
+  socket.on('error', (error) => {
+    console.error(`🔥 Socket error for user ${socket.userId}:`, error);
   });
 });
 
-// Make io available in controllers
+// Make io instance available to other modules
 app.set('io', io);
 
-// 404 handler
-app.all('*', (req, res) => {
-  res.status(404).json({
-    status: 'error',
-    message: `Route ${req.originalUrl} not found`
+// Global socket notification functions
+global.notifyUser = (userId, notification) => {
+  io.to(`user_${userId}`).emit('notification', {
+    ...notification,
+    timestamp: new Date()
   });
-});
+};
 
-// Global error handler
-app.use(errorHandler);
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received. Shutting down gracefully...');
-  server.close(() => {
-    console.log('Process terminated');
-    process.exit(0);
+global.notifyTeam = (teamId, notification) => {
+  io.to(`team_${teamId}`).emit('team-notification', {
+    ...notification,
+    timestamp: new Date()
   });
-});
+};
 
-process.on('SIGINT', () => {
-  console.log('SIGINT received. Shutting down gracefully...');
-  server.close(() => {
-    console.log('Process terminated');
-    process.exit(0);
+global.notifyHackathon = (hackathonId, notification) => {
+  io.to(`hackathon_${hackathonId}`).emit('hackathon-notification', {
+    ...notification,
+    timestamp: new Date()
   });
-});
+};
 
-// Unhandled promise rejections
-process.on('unhandledRejection', (err) => {
-  console.error('Unhandled Promise Rejection:', err);
-  server.close(() => {
+// Start server function
+async function startServer() {
+  try {
+    // Connect to MongoDB
+    console.log('🔗 Connecting to MongoDB...');
+    await connectDB();
+    console.log('✅ MongoDB connected successfully');
+
+    // Connect to Redis - FIXED
+    console.log('🔗 Connecting to Redis...');
+    const redisClient = await connectRedis(); // Use the connectRedis function
+    
+    if (redisClient) {
+      console.log('✅ Redis connected successfully');
+    } else {
+      console.log('⚠️ Redis connection failed, continuing without cache');
+    }
+
+    // Start the HTTP server
+    const PORT = process.env.PORT || 5000;
+    server.listen(PORT, () => {
+      console.log('🚀 HackMates Backend Server Started!');
+      console.log(`📍 Server running on port ${PORT}`);
+      console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`📚 API Documentation: http://localhost:${PORT}/docs`);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      
+      // Start background workers
+      console.log('🔧 Starting background workers...');
+      matchUpdater.start();
+      console.log('✅ Background workers started successfully');
+    });
+
+  } catch (error) {
+    console.error('❌ Failed to start server:', error.message);
+    
+    // Gracefully close connections
+    await closeRedis(); // Use the closeRedis function
+    
     process.exit(1);
-  });
+  }
+}
+
+// Graceful shutdown handling
+process.on('SIGTERM', async () => {
+  console.log('🛑 SIGTERM received, shutting down gracefully...');
+  await gracefulShutdown();
 });
 
-// Uncaught exceptions
+process.on('SIGINT', async () => {
+  console.log('🛑 SIGINT received, shutting down gracefully...');
+  await gracefulShutdown();
+});
+
+async function gracefulShutdown() {
+  try {
+    console.log('⏳ Closing server...');
+    server.close(() => {
+      console.log('✅ HTTP server closed');
+    });
+
+    // Close database connections
+    console.log('⏳ Closing database connections...');
+    await mongoose.connection.close();
+    console.log('✅ MongoDB connection closed');
+
+    // Close Redis connection - FIXED
+    await closeRedis(); // Use the closeRedis function
+    console.log('✅ Redis connection closed');
+
+    // Stop background workers
+    matchUpdater.stop();
+    console.log('✅ Background workers stopped');
+
+    console.log('👋 Server shutdown complete');
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Error during shutdown:', error);
+    process.exit(1);
+  }
+}
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (err) => {
+  console.error('🔥 Unhandled Promise Rejection:', err);
+  gracefulShutdown();
+});
+
+// Handle uncaught exceptions
 process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception:', err);
-  process.exit(1);
+  console.error('🔥 Uncaught Exception:', err);
+  gracefulShutdown();
 });
 
-const PORT = process.env.PORT || 5000;
-
-server.listen(PORT, () => {
-  console.log(`
-🚀 HackMates Backend Server Started!
-📍 Port: ${PORT}
-🌍 Environment: ${process.env.NODE_ENV || 'development'}
-📊 Database: MongoDB Connected
-🔄 Cache: Redis Connected
-⏰ Started at: ${new Date().toISOString()}
-  `);
-});
-
-module.exports = { app, server, io };
+// Start the server
+startServer();

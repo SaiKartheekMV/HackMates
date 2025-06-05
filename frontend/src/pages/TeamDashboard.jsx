@@ -1,994 +1,679 @@
+/* eslint-disable react-hooks/exhaustive-deps */
+/* eslint-disable no-unused-vars */
 import React, { useState, useEffect } from 'react';
-import {
-  Container,
-  Row,
-  Col,
-  Card,
-  Button,
-  Badge,
-  Tab,
-  Tabs,
-  Modal,
-  Form,
-  ListGroup,
-  Alert,
-  Spinner,
-  ProgressBar,
-  Dropdown,
-  Toast,
-  ToastContainer
-} from 'react-bootstrap';
-import {
-  FaUsers,
-  FaPlus,
-  FaCog,
-  FaCalendarAlt,
-  FaTrophy,
-  FaCode,
-  FaComments,
-  FaFile,
-  FaDownload,
-  FaUpload,
-  FaTrash,
-  FaEdit,
-  FaEye,
-  FaCrown,
-  FaUserPlus,
-  FaSignOutAlt,
-  FaBell
-} from 'react-icons/fa';
-import { useAuth } from '../context/AuthContext';
+import { Container, Row, Col, Card, Badge, Button, Modal, Form, Alert, Spinner, Tabs, Tab, ListGroup, ProgressBar } from 'react-bootstrap';
+import { teamAPI } from '../services/api';
 
 const TeamDashboard = () => {
-  const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('overview');
-  const [showInviteModal, setShowInviteModal] = useState(false);
-  const [showCreateTeamModal, setShowCreateTeamModal] = useState(false);
-  const [showFileModal, setShowFileModal] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [loading, setLoading] = useState(true);
   const [teams, setTeams] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [selectedTeam, setSelectedTeam] = useState(null);
-  const [showToast, setShowToast] = useState(false);
-  const [toastMessage, setToastMessage] = useState('');
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showTeamModal, setShowTeamModal] = useState(false);
+  const [alert, setAlert] = useState({ show: false, message: '', type: '' });
+  const [activeTab, setActiveTab] = useState('my-teams');
+  
+  // Form states
+  const [createForm, setCreateForm] = useState({
+    name: '',
+    description: '',
+    hackathonId: '',
+    requiredSkills: [],
+    maxMembers: 4,
+    isPublic: true
+  });
 
-  // Mock data - replace with API calls
+  // Mock data for demonstration
   const mockTeams = [
     {
-      id: 1,
-      name: 'AI Innovators',
-      description: 'Building the next generation of AI-powered applications',
-      role: 'leader',
+      _id: '1',
+      name: 'Neural Nexus',
+      description: 'AI-powered solution for smart city infrastructure',
+      hackathonId: { _id: 'h1', title: 'TechCrunch Disrupt 2025', startDate: '2025-07-15', endDate: '2025-07-17', status: 'upcoming' },
+      leaderId: { _id: 'u1', firstName: 'Alex', lastName: 'Chen', profilePicture: null },
       members: [
-        {
-          id: 1,
-          name: 'John Doe',
-          email: 'john@example.com',
-          role: 'Team Leader',
-          avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150',
-          skills: ['React', 'Python', 'AI/ML'],
-          isOnline: true
-        },
-        {
-          id: 2,
-          name: 'Alice Smith',
-          email: 'alice@example.com',
-          role: 'Frontend Developer',
-          avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=150',
-          skills: ['React', 'UI/UX', 'TypeScript'],
-          isOnline: false
-        },
-        {
-          id: 3,
-          name: 'Bob Johnson',
-          email: 'bob@example.com',
-          role: 'Backend Developer',
-          avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
-          skills: ['Node.js', 'Python', 'MongoDB'],
-          isOnline: true
-        }
+        { userId: { _id: 'u1', firstName: 'Alex', lastName: 'Chen' }, role: 'Team Leader', status: 'active' },
+        { userId: { _id: 'u2', firstName: 'Sarah', lastName: 'Kim' }, role: 'Frontend Dev', status: 'active' },
+        { userId: { _id: 'u3', firstName: 'Mike', lastName: 'Johnson' }, role: 'AI Engineer', status: 'active' }
       ],
-      hackathons: [
-        {
-          id: 1,
-          name: 'TechCrunch Disrupt Hackathon',
-          status: 'registered',
-          startDate: '2024-06-15',
-          endDate: '2024-06-17',
-          prize: '$50,000'
-        }
-      ],
-      files: [
-        {
-          id: 1,
-          name: 'Project Proposal.pdf',
-          size: '2.3 MB',
-          uploadedBy: 'John Doe',
-          uploadedAt: '2024-05-20'
-        },
-        {
-          id: 2,
-          name: 'Wireframes.fig',
-          size: '5.1 MB',
-          uploadedBy: 'Alice Smith',
-          uploadedAt: '2024-05-22'
-        }
-      ],
-      progress: {
-        completed: 3,
-        total: 8,
-        tasks: [
-          { id: 1, title: 'Set up project repository', completed: true, assignee: 'Bob Johnson' },
-          { id: 2, title: 'Design UI mockups', completed: true, assignee: 'Alice Smith' },
-          { id: 3, title: 'Research APIs', completed: true, assignee: 'John Doe' },
-          { id: 4, title: 'Implement backend', completed: false, assignee: 'Bob Johnson' },
-          { id: 5, title: 'Create frontend components', completed: false, assignee: 'Alice Smith' },
-          { id: 6, title: 'Integrate AI model', completed: false, assignee: 'John Doe' },
-          { id: 7, title: 'Testing and debugging', completed: false, assignee: 'Team' },
-          { id: 8, title: 'Prepare presentation', completed: false, assignee: 'Team' }
-        ]
-      }
+      requiredSkills: ['React', 'Python', 'TensorFlow', 'Node.js'],
+      maxMembers: 4,
+      status: 'forming',
+      isPublic: true,
+      createdAt: '2025-06-01'
     },
     {
-      id: 2,
-      name: 'Blockchain Builders',
-      description: 'Creating decentralized solutions for real-world problems',
-      role: 'member',
+      _id: '2',
+      name: 'Quantum Coders',
+      description: 'Blockchain-based decentralized voting system',
+      hackathonId: { _id: 'h2', title: 'ETHGlobal 2025', startDate: '2025-08-10', endDate: '2025-08-12' },
+      leaderId: { _id: 'u4', firstName: 'David', lastName: 'Park' },
       members: [
-        {
-          id: 4,
-          name: 'Sarah Wilson',
-          email: 'sarah@example.com',
-          role: 'Team Leader',
-          avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150',
-          skills: ['Blockchain', 'Solidity', 'Web3'],
-          isOnline: true
-        },
-        {
-          id: 1,
-          name: 'John Doe',
-          email: 'john@example.com',
-          role: 'Full Stack Developer',
-          avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150',
-          skills: ['React', 'Python', 'AI/ML'],
-          isOnline: true
-        }
+        { userId: { _id: 'u4', firstName: 'David', lastName: 'Park' }, role: 'Team Leader', status: 'active' },
+        { userId: { _id: 'u5', firstName: 'Emma', lastName: 'Wilson' }, role: 'Smart Contract Dev', status: 'active' }
       ],
-      hackathons: [
-        {
-          id: 2,
-          name: 'Ethereum Global Hackathon',
-          status: 'in-progress',
-          startDate: '2024-05-28',
-          endDate: '2024-05-30',
-          prize: '$25,000'
-        }
-      ],
-      files: [],
-      progress: {
-        completed: 1,
-        total: 5,
-        tasks: [
-          { id: 1, title: 'Research problem statement', completed: true, assignee: 'Sarah Wilson' },
-          { id: 2, title: 'Smart contract development', completed: false, assignee: 'Sarah Wilson' },
-          { id: 3, title: 'Frontend development', completed: false, assignee: 'John Doe' },
-          { id: 4, title: 'Integration testing', completed: false, assignee: 'Team' },
-          { id: 5, title: 'Demo preparation', completed: false, assignee: 'Team' }
-        ]
-      }
+      requiredSkills: ['Solidity', 'Web3.js', 'React', 'IPFS'],
+      maxMembers: 5,
+      status: 'forming',
+      isPublic: true,
+      createdAt: '2025-06-03'
     }
   ];
 
-  useEffect(() => {
-    // Simulate API call
-    const fetchTeams = async () => {
-      setLoading(true);
-      try {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        setTeams(mockTeams);
-        setSelectedTeam(mockTeams[0]);
-      } catch (error) {
-        console.error('Error fetching teams:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+ const fetchTeams = async () => {
+  try {
+    setLoading(true);
+    const response = await teamAPI.getMyTeams();
+    // Access the data properly
+    setTeams(response.data.teams || response.data || []);
+  } catch (error) {
+    console.error('Error fetching teams:', error);
+    const errorMessage = error.response?.data?.message || 'Failed to load teams';
+    showAlert(errorMessage, 'danger');
+  } finally {
+    setLoading(false);
+  }
+};
 
-    fetchTeams();
-  }, []);
-
-  const handleInviteMember = async () => {
-    if (!inviteEmail.trim()) return;
+const handleCreateTeam = async (e) => {
+  e.preventDefault();
+  try {
+    setLoading(true);
+    const response = await teamAPI.createTeam(createForm);
     
-    // Simulate API call
-    try {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      setToastMessage(`Invitation sent to ${inviteEmail}`);
-      setShowToast(true);
-      setInviteEmail('');
-      setShowInviteModal(false);
-    } catch (error) {
-      console.error('Error sending invitation:', error);
+    // Refresh teams list
+    const teamsResponse = await teamAPI.getMyTeams();
+    setTeams(teamsResponse.data.teams || teamsResponse.data || []);
+    
+    setShowCreateModal(false);
+    setCreateForm({ 
+      name: '', 
+      description: '', 
+      hackathonId: '', 
+      requiredSkills: [], 
+      maxMembers: 4, 
+      isPublic: true 
+    });
+    showAlert('Team created successfully!', 'success');
+  } catch (error) {
+    console.error('Error creating team:', error);
+    const errorMessage = error.response?.data?.message || 'Failed to create team';
+    showAlert(errorMessage, 'danger');
+  } finally {
+    setLoading(false);
+  }
+};
+
+const handleJoinTeam = async (teamId) => {
+  try {
+    await teamAPI.joinTeam(teamId);
+    showAlert('Successfully joined team!', 'success');
+    
+    // Refresh teams if needed
+    if (activeTab === 'my-teams') {
+      const response = await teamAPI.getMyTeams();
+      setTeams(response.data);
+    }
+  } catch (error) {
+    console.error('Error joining team:', error);
+    showAlert(error.response?.data?.message || 'Failed to join team', 'danger');
+  }
+};
+
+  const handleLeaveTeam = async (teamId) => {
+  try {
+    await teamAPI.leaveTeam(teamId);
+    
+    // Remove team from local state
+    setTeams(prev => prev.filter(team => team._id !== teamId));
+    showAlert('Successfully left team', 'success');
+  } catch (error) {
+    console.error('Error leaving team:', error);
+    showAlert(error.response?.data?.message || 'Failed to leave team', 'danger');
+  }
+};
+
+const [exploreTeams, setExploreTeams] = useState([]);
+
+
+  const showAlert = (message, type) => {
+    setAlert({ show: true, message, type });
+    setTimeout(() => setAlert({ show: false, message: '', type: '' }), 3000);
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'forming': return 'warning';
+      case 'complete': return 'success';
+      case 'active': return 'primary';
+      default: return 'secondary';
     }
   };
 
-  const handleCreateTeam = (teamData) => {
-    // Simulate API call to create team
-    const newTeam = {
-      id: teams.length + 1,
-      ...teamData,
-      role: 'leader',
-      members: [
-        {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: 'Team Leader',
-          avatar: user.avatar,
-          skills: user.skills || [],
-          isOnline: true
-        }
-      ],
-      hackathons: [],
-      files: [],
-      progress: { completed: 0, total: 0, tasks: [] }
-    };
+  const TeamCard = ({ team, isMyTeam = true }) => (
+    <Card className="team-card mb-4 h-100" style={{
+      background: 'linear-gradient(145deg, #0a0a0a 0%, #1a1a2e 100%)',
+      border: '1px solid #16213e',
+      borderRadius: '15px',
+      boxShadow: '0 8px 32px rgba(0, 123, 255, 0.1)'
+    }}>
+      <Card.Header style={{
+        background: 'linear-gradient(90deg, #0f3460 0%, #16213e 100%)',
+        border: 'none',
+        borderRadius: '15px 15px 0 0'
+      }}>
+        <div className="d-flex justify-content-between align-items-center">
+          <h5 className="mb-0" style={{ color: '#00f5ff', fontWeight: '600' }}>
+            {team.name}
+          </h5>
+          <Badge bg={getStatusColor(team.status)} style={{
+            background: team.status === 'forming' ? '#ffd700' : '#00ff00',
+            color: '#000',
+            textTransform: 'uppercase',
+            fontSize: '0.7rem',
+            fontWeight: '700'
+          }}>
+            {team.status}
+          </Badge>
+        </div>
+      </Card.Header>
+      
+      <Card.Body style={{ color: '#e0e6ed' }}>
+        <p className="text-muted mb-3" style={{ color: '#8892b0 !important' }}>
+          {team.description}
+        </p>
+        
+        <div className="mb-3">
+          <small style={{ color: '#64ffda', fontWeight: '600' }}>HACKATHON EVENT</small>
+          <div style={{ color: '#ccd6f6' }}>{team.hackathonId.title}</div>
+          <small style={{ color: '#8892b0' }}>
+            {new Date(team.hackathonId.startDate).toLocaleDateString()} - {new Date(team.hackathonId.endDate).toLocaleDateString()}
+          </small>
+        </div>
 
-    setTeams([...teams, newTeam]);
-    setSelectedTeam(newTeam);
-    setShowCreateTeamModal(false);
-    setToastMessage('Team created successfully!');
-    setShowToast(true);
-  };
+        <div className="mb-3">
+          <small style={{ color: '#64ffda', fontWeight: '600' }}>TEAM COMPOSITION</small>
+          <ProgressBar 
+            now={(team.members.filter(m => m.status === 'active').length / team.maxMembers) * 100}
+            style={{ height: '8px', background: '#16213e' }}
+          >
+            <ProgressBar 
+              now={(team.members.filter(m => m.status === 'active').length / team.maxMembers) * 100}
+              style={{ background: 'linear-gradient(90deg, #ffd700, #ff6b6b)' }}
+            />
+          </ProgressBar>
+          <small style={{ color: '#8892b0' }}>
+            {team.members.filter(m => m.status === 'active').length}/{team.maxMembers} members
+          </small>
+        </div>
 
-  const renderOverviewTab = () => (
-    <Row>
-      <Col lg={8}>
-        <Card className="mb-4">
-          <Card.Header>
-            <h5 className="mb-0">
-              <FaTrophy className="me-2 text-warning" />
-              Active Hackathons
-            </h5>
-          </Card.Header>
-          <Card.Body>
-            {selectedTeam?.hackathons?.length > 0 ? (
-              selectedTeam.hackathons.map(hackathon => (
-                <div key={hackathon.id} className="border rounded p-3 mb-3">
-                  <div className="d-flex justify-content-between align-items-start">
-                    <div>
-                      <h6 className="mb-1">{hackathon.name}</h6>
-                      <p className="text-muted mb-2">
-                        <FaCalendarAlt className="me-1" />
-                        {hackathon.startDate} - {hackathon.endDate}
-                      </p>
-                      <Badge bg={hackathon.status === 'in-progress' ? 'success' : 'primary'}>
-                        {hackathon.status.replace('-', ' ').toUpperCase()}
-                      </Badge>
-                    </div>
-                    <div className="text-end">
-                      <h6 className="text-success mb-0">{hackathon.prize}</h6>
-                      <small className="text-muted">Prize Pool</small>
-                    </div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <Alert variant="info">
-                <FaTrophy className="me-2" />
-                No active hackathons. Browse available hackathons to participate!
-              </Alert>
+        <div className="mb-3">
+          <small style={{ color: '#64ffda', fontWeight: '600' }}>REQUIRED SKILLS</small>
+          <div className="d-flex flex-wrap gap-1 mt-1">
+            {team.requiredSkills.slice(0, 4).map((skill, idx) => (
+              <Badge 
+                key={idx} 
+                style={{
+                  background: 'linear-gradient(45deg, #ff6b6b, #ffd700)',
+                  color: '#000',
+                  fontSize: '0.7rem',
+                  fontWeight: '600'
+                }}
+              >
+                {skill}
+              </Badge>
+            ))}
+            {team.requiredSkills.length > 4 && (
+              <Badge style={{ background: '#16213e', color: '#64ffda' }}>
+                +{team.requiredSkills.length - 4}
+              </Badge>
             )}
-          </Card.Body>
-        </Card>
+          </div>
+        </div>
 
-        <Card className="mb-4">
-          <Card.Header>
-            <h5 className="mb-0">
-              <FaCode className="me-2 text-primary" />
-              Project Progress
-            </h5>
-          </Card.Header>
-          <Card.Body>
-            {selectedTeam?.progress && selectedTeam.progress.total > 0 ? (
-              <>
-                <div className="d-flex justify-content-between align-items-center mb-3">
-                  <span>Overall Progress</span>
-                  <span className="fw-bold">
-                    {selectedTeam.progress.completed}/{selectedTeam.progress.total} tasks
+        <div className="mb-3">
+          <small style={{ color: '#64ffda', fontWeight: '600' }}>TEAM MEMBERS</small>
+          {team.members.filter(m => m.status === 'active').map((member, idx) => (
+            <div key={idx} className="d-flex align-items-center mt-1">
+              <div 
+                className="rounded-circle me-2" 
+                style={{
+                  width: '24px',
+                  height: '24px',
+                  background: 'linear-gradient(45deg, #00f5ff, #0066ff)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '0.7rem',
+                  fontWeight: '700',
+                  color: '#000'
+                }}
+              >
+                {member.userId.firstName[0]}
+              </div>
+              <small style={{ color: '#ccd6f6' }}>
+                {member.userId.firstName} {member.userId.lastName}
+                {member.role === 'Team Leader' && (
+                  <Badge bg="warning" className="ms-1" style={{ fontSize: '0.6rem', color: '#000' }}>
+                    LEADER
+                  </Badge>
+                )}
+              </small>
+            </div>
+          ))}
+        </div>
+      </Card.Body>
+
+      <Card.Footer style={{
+        background: 'linear-gradient(90deg, #16213e 0%, #0f3460 100%)',
+        border: 'none',
+        borderRadius: '0 0 15px 15px'
+      }}>
+        <div className="d-flex gap-2">
+          <Button
+            size="sm"
+            onClick={() => {setSelectedTeam(team); setShowTeamModal(true);}}
+            style={{
+              background: 'linear-gradient(45deg, #00f5ff, #0066ff)',
+              border: 'none',
+              color: '#000',
+              fontWeight: '600',
+              textTransform: 'uppercase',
+              fontSize: '0.7rem'
+            }}
+          >
+            View Details
+          </Button>
+          {isMyTeam ? (
+            <Button
+              size="sm"
+              variant="outline-danger"
+              onClick={() => handleLeaveTeam(team._id)}
+              style={{
+                borderColor: '#ff6b6b',
+                color: '#ff6b6b',
+                fontWeight: '600',
+                textTransform: 'uppercase',
+                fontSize: '0.7rem'
+              }}
+            >
+              Leave Team
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              onClick={() => handleJoinTeam(team._id)}
+              style={{
+                background: 'linear-gradient(45deg, #ffd700, #ff6b6b)',
+                border: 'none',
+                color: '#000',
+                fontWeight: '600',
+                textTransform: 'uppercase',
+                fontSize: '0.7rem'
+              }}
+            >
+              Join Team
+            </Button>
+          )}
+        </div>
+      </Card.Footer>
+    </Card>
+  );
+
+  if (loading) {
+    return (
+      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '60vh' }}>
+        <Spinner animation="border" style={{ color: '#00f5ff' }} />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%)',
+      color: '#e0e6ed'
+    }}>
+      <Container fluid className="py-4">
+        {/* Header */}
+        <Row className="mb-4">
+          <Col>
+            <div className="text-center mb-4">
+              <h1 style={{
+                background: 'linear-gradient(45deg, #00f5ff, #ffd700, #ff6b6b)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                fontSize: '3rem',
+                fontWeight: '700',
+                textShadow: '0 0 20px rgba(0, 245, 255, 0.3)'
+              }}>
+                TEAM DASHBOARD
+              </h1>
+              <p style={{ color: '#8892b0', fontSize: '1.1rem' }}>
+                Command Center for Your Hackathon Teams
+              </p>
+            </div>
+          </Col>
+        </Row>
+
+        {/* Alert */}
+        {alert.show && (
+          <Row className="mb-3">
+            <Col>
+              <Alert variant={alert.type} className="text-center">
+                {alert.message}
+              </Alert>
+            </Col>
+          </Row>
+        )}
+
+        {/* Navigation Tabs */}
+        <Row className="mb-4">
+          <Col>
+            <Tabs
+              activeKey={activeTab}
+              onSelect={setActiveTab}
+              className="custom-tabs"
+              style={{
+                borderBottom: '2px solid #16213e'
+              }}
+            >
+              <Tab
+                eventKey="my-teams"
+                title={
+                  <span style={{
+                    color: activeTab === 'my-teams' ? '#00f5ff' : '#8892b0',
+                    fontWeight: '600',
+                    textTransform: 'uppercase'
+                  }}>
+                    My Teams ({teams.length})
                   </span>
-                </div>
-                <ProgressBar 
-                  now={(selectedTeam.progress.completed / selectedTeam.progress.total) * 100} 
-                  className="mb-4"
-                  variant="success"
-                />
-                <div className="row">
-                  {selectedTeam.progress.tasks.map(task => (
-                    <div key={task.id} className="col-md-6 mb-2">
-                      <div className={`p-2 rounded border ${task.completed ? 'bg-light-success' : 'bg-light'}`}>
-                        <div className="d-flex align-items-center">
-                          <Form.Check
-                            type="checkbox"
-                            checked={task.completed}
-                            readOnly
-                            className="me-2"
-                          />
-                          <div className="flex-grow-1">
-                            <div className={task.completed ? 'text-decoration-line-through text-muted' : ''}>
-                              {task.title}
-                            </div>
-                            <small className="text-muted">Assigned to: {task.assignee}</small>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <Alert variant="info">
-                <FaCode className="me-2" />
-                No project tasks yet. Start by creating your first task!
-              </Alert>
-            )}
-          </Card.Body>
-        </Card>
-      </Col>
+                }
+              >
+                <div className="mt-4">
+                  <Row className="mb-3">
+                    <Col>
+                      <Button
+                        onClick={() => setShowCreateModal(true)}
+                        style={{
+                          background: 'linear-gradient(45deg, #ffd700, #ff6b6b)',
+                          border: 'none',
+                          color: '#000',
+                          fontWeight: '700',
+                          textTransform: 'uppercase',
+                          padding: '10px 30px',
+                          borderRadius: '25px',
+                          boxShadow: '0 4px 15px rgba(255, 215, 0, 0.3)'
+                        }}
+                      >
+                        + Create New Team
+                      </Button>
+                    </Col>
+                  </Row>
 
-      <Col lg={4}>
-        <Card className="mb-4">
-          <Card.Header>
-            <h5 className="mb-0">
-              <FaUsers className="me-2 text-info" />
-              Team Members ({selectedTeam?.members?.length || 0})
-            </h5>
-          </Card.Header>
-          <Card.Body>
-            {selectedTeam?.members?.map(member => (
-              <div key={member.id} className="d-flex align-items-center mb-3">
-                <div className="position-relative me-3">
-                  <img
-                    src={member.avatar}
-                    alt={member.name}
-                    className="rounded-circle"
-                    width="40"
-                    height="40"
-                  />
-                  {member.isOnline && (
-                    <span className="position-absolute bottom-0 end-0 bg-success rounded-circle" 
-                          style={{width: '12px', height: '12px', border: '2px solid white'}}></span>
+                  {teams.length === 0 ? (
+                    <Card style={{
+                      background: 'linear-gradient(145deg, #0a0a0a 0%, #1a1a2e 100%)',
+                      border: '1px solid #16213e',
+                      borderRadius: '15px'
+                    }}>
+                      <Card.Body className="text-center py-5">
+                        <h4 style={{ color: '#64ffda' }}>No Teams Found</h4>
+                        <p style={{ color: '#8892b0' }}>Create your first team to get started!</p>
+                      </Card.Body>
+                    </Card>
+                  ) : (
+                    <Row>
+                      {teams.map(team => (
+                        <Col key={team._id} lg={6} xl={4} className="mb-4">
+                          <TeamCard team={team} />
+                        </Col>
+                      ))}
+                    </Row>
                   )}
                 </div>
-                <div className="flex-grow-1">
-                  <div className="d-flex align-items-center">
-                    <span className="fw-semibold me-2">{member.name}</span>
-                    {member.role === 'Team Leader' && (
-                      <FaCrown className="text-warning" size="14" />
-                    )}
-                  </div>
-                  <small className="text-muted">{member.role}</small>
-                  <div className="mt-1">
-                    {member.skills?.slice(0, 2).map(skill => (
-                      <Badge key={skill} bg="light" text="dark" className="me-1" style={{fontSize: '0.7em'}}>
+              </Tab>
+
+              <Tab
+                eventKey="explore"
+                title={
+                  <span style={{
+                    color: activeTab === 'explore' ? '#00f5ff' : '#8892b0',
+                    fontWeight: '600',
+                    textTransform: 'uppercase'
+                  }}>
+                    Explore Teams
+                  </span>
+                }
+              >
+                <div className="mt-4">
+                  <Row>
+                    {mockTeams.map(team => (
+                      <Col key={team._id} lg={6} xl={4} className="mb-4">
+                        <TeamCard team={team} isMyTeam={false} />
+                      </Col>
+                    ))}
+                  </Row>
+                </div>
+              </Tab>
+            </Tabs>
+          </Col>
+        </Row>
+
+        {/* Create Team Modal */}
+        <Modal
+          show={showCreateModal}
+          onHide={() => setShowCreateModal(false)}
+          size="lg"
+          centered
+          style={{ color: '#000' }}
+        >
+          <Modal.Header 
+            closeButton
+            style={{
+              background: 'linear-gradient(90deg, #0f3460 0%, #16213e 100%)',
+              border: 'none',
+              color: '#00f5ff'
+            }}
+          >
+            <Modal.Title style={{ fontWeight: '700', textTransform: 'uppercase' }}>
+              Create New Team
+            </Modal.Title>
+          </Modal.Header>
+          <Modal.Body style={{ 
+            background: 'linear-gradient(145deg, #1a1a2e 0%, #0a0a0a 100%)',
+            color: '#e0e6ed'
+          }}>
+            <Form onSubmit={handleCreateTeam}>
+              <Form.Group className="mb-3">
+                <Form.Label style={{ color: '#64ffda', fontWeight: '600' }}>Team Name</Form.Label>
+                <Form.Control
+                  type="text"
+                  value={createForm.name}
+                  onChange={(e) => setCreateForm(prev => ({ ...prev, name: e.target.value }))}
+                  required
+                  style={{
+                    background: '#16213e',
+                    border: '1px solid #64ffda',
+                    color: '#e0e6ed',
+                    borderRadius: '8px'
+                  }}
+                />
+              </Form.Group>
+
+              <Form.Group className="mb-3">
+                <Form.Label style={{ color: '#64ffda', fontWeight: '600' }}>Description</Form.Label>
+                <Form.Control
+                  as="textarea"
+                  rows={3}
+                  value={createForm.description}
+                  onChange={(e) => setCreateForm(prev => ({ ...prev, description: e.target.value }))}
+                  style={{
+                    background: '#16213e',
+                    border: '1px solid #64ffda',
+                    color: '#e0e6ed',
+                    borderRadius: '8px'
+                  }}
+                />
+              </Form.Group>
+
+              <Row>
+                <Col md={6}>
+                  <Form.Group className="mb-3">
+                    <Form.Label style={{ color: '#64ffda', fontWeight: '600' }}>Max Members</Form.Label>
+                    <Form.Control
+                      type="number"
+                      min="2"
+                      max="10"
+                      value={createForm.maxMembers}
+                      onChange={(e) => setCreateForm(prev => ({ ...prev, maxMembers: parseInt(e.target.value) }))}
+                      style={{
+                        background: '#16213e',
+                        border: '1px solid #64ffda',
+                        color: '#e0e6ed',
+                        borderRadius: '8px'
+                      }}
+                    />
+                  </Form.Group>
+                </Col>
+                <Col md={6}>
+                  <Form.Group className="mb-3">
+                    <Form.Check
+                      type="checkbox"
+                      label="Public Team"
+                      checked={createForm.isPublic}
+                      onChange={(e) => setCreateForm(prev => ({ ...prev, isPublic: e.target.checked }))}
+                      style={{ color: '#e0e6ed', marginTop: '2rem' }}
+                    />
+                  </Form.Group>
+                </Col>
+              </Row>
+
+              <div className="d-flex gap-2 justify-content-end">
+                <Button
+                  variant="outline-secondary"
+                  onClick={() => setShowCreateModal(false)}
+                  style={{ borderColor: '#8892b0', color: '#8892b0' }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  style={{
+                    background: 'linear-gradient(45deg, #00f5ff, #0066ff)',
+                    border: 'none',
+                    color: '#000',
+                    fontWeight: '600'
+                  }}
+                >
+                  Create Team
+                </Button>
+              </div>
+            </Form>
+          </Modal.Body>
+        </Modal>
+
+        {/* Team Details Modal */}
+        <Modal
+          show={showTeamModal}
+          onHide={() => setShowTeamModal(false)}
+          size="lg"
+          centered
+        >
+          <Modal.Header 
+            closeButton
+            style={{
+              background: 'linear-gradient(90deg, #0f3460 0%, #16213e 100%)',
+              border: 'none',
+              color: '#00f5ff'
+            }}
+          >
+            <Modal.Title style={{ fontWeight: '700', textTransform: 'uppercase' }}>
+              {selectedTeam?.name}
+            </Modal.Title>
+          </Modal.Header>
+          <Modal.Body style={{ 
+            background: 'linear-gradient(145deg, #1a1a2e 0%, #0a0a0a 100%)',
+            color: '#e0e6ed'
+          }}>
+            {selectedTeam && (
+              <div>
+                <p style={{ color: '#8892b0' }}>{selectedTeam.description}</p>
+                
+                <div className="mb-3">
+                  <h6 style={{ color: '#64ffda' }}>Hackathon</h6>
+                  <p style={{ color: '#ccd6f6' }}>{selectedTeam.hackathonId.title}</p>
+                </div>
+
+                <div className="mb-3">
+                  <h6 style={{ color: '#64ffda' }}>Team Members</h6>
+                  <ListGroup variant="flush">
+                    {selectedTeam.members.filter(m => m.status === 'active').map((member, idx) => (
+                      <ListGroup.Item 
+                        key={idx}
+                        style={{ 
+                          background: 'transparent', 
+                          border: '1px solid #16213e',
+                          color: '#e0e6ed',
+                          marginBottom: '8px',
+                          borderRadius: '8px'
+                        }}
+                      >
+                        <div className="d-flex justify-content-between align-items-center">
+                          <span>{member.userId.firstName} {member.userId.lastName}</span>
+                          <Badge 
+                            bg={member.role === 'Team Leader' ? 'warning' : 'info'}
+                            style={{ color: '#000' }}
+                          >
+                            {member.role}
+                          </Badge>
+                        </div>
+                      </ListGroup.Item>
+                    ))}
+                  </ListGroup>
+                </div>
+
+                <div className="mb-3">
+                  <h6 style={{ color: '#64ffda' }}>Required Skills</h6>
+                  <div className="d-flex flex-wrap gap-2">
+                    {selectedTeam.requiredSkills.map((skill, idx) => (
+                      <Badge 
+                        key={idx}
+                        style={{
+                          background: 'linear-gradient(45deg, #ff6b6b, #ffd700)',
+                          color: '#000'
+                        }}
+                      >
                         {skill}
                       </Badge>
                     ))}
                   </div>
                 </div>
               </div>
-            ))}
-            
-            {selectedTeam?.role === 'leader' && (
-              <Button
-                variant="outline-primary"
-                size="sm"
-                className="w-100"
-                onClick={() => setShowInviteModal(true)}
-              >
-                <FaUserPlus className="me-2" />
-                Invite Member
-              </Button>
             )}
-          </Card.Body>
-        </Card>
-
-        <Card>
-          <Card.Header>
-            <h5 className="mb-0">
-              <FaFile className="me-2 text-secondary" />
-              Recent Files
-            </h5>
-          </Card.Header>
-          <Card.Body>
-            {selectedTeam?.files?.length > 0 ? (
-              selectedTeam.files.map(file => (
-                <div key={file.id} className="d-flex align-items-center justify-content-between py-2 border-bottom">
-                  <div>
-                    <div className="fw-semibold">{file.name}</div>
-                    <small className="text-muted">
-                      {file.size} • {file.uploadedBy} • {file.uploadedAt}
-                    </small>
-                  </div>
-                  <Dropdown>
-                    <Dropdown.Toggle variant="ghost" size="sm" className="border-0">
-                      <FaCog />
-                    </Dropdown.Toggle>
-                    <Dropdown.Menu>
-                      <Dropdown.Item>
-                        <FaDownload className="me-2" />
-                        Download
-                      </Dropdown.Item>
-                      <Dropdown.Item>
-                        <FaEye className="me-2" />
-                        View
-                      </Dropdown.Item>
-                      <Dropdown.Item className="text-danger">
-                        <FaTrash className="me-2" />
-                        Delete
-                      </Dropdown.Item>
-                    </Dropdown.Menu>
-                  </Dropdown>
-                </div>
-              ))
-            ) : (
-              <Alert variant="light" className="text-center">
-                <FaFile className="me-2" />
-                No files uploaded yet
-              </Alert>
-            )}
-            
-            <Button
-              variant="outline-secondary"
-              size="sm"
-              className="w-100 mt-3"
-              onClick={() => setShowFileModal(true)}
-            >
-              <FaUpload className="me-2" />
-              Upload File
-            </Button>
-          </Card.Body>
-        </Card>
-      </Col>
-    </Row>
-  );
-
-  const renderMembersTab = () => (
-    <Row>
-      <Col lg={8}>
-        <Card>
-          <Card.Header>
-            <div className="d-flex justify-content-between align-items-center">
-              <h5 className="mb-0">Team Members</h5>
-              {selectedTeam?.role === 'leader' && (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => setShowInviteModal(true)}
-                >
-                  <FaUserPlus className="me-2" />
-                  Invite Member
-                </Button>
-              )}
-            </div>
-          </Card.Header>
-          <Card.Body>
-            {selectedTeam?.members?.map(member => (
-              <Card key={member.id} className="mb-3">
-                <Card.Body>
-                  <Row className="align-items-center">
-                    <Col md={2}>
-                      <div className="position-relative">
-                        <img
-                          src={member.avatar}
-                          alt={member.name}
-                          className="rounded-circle"
-                          width="60"
-                          height="60"
-                        />
-                        {member.isOnline && (
-                          <span className="position-absolute bottom-0 end-0 bg-success rounded-circle" 
-                                style={{width: '16px', height: '16px', border: '3px solid white'}}></span>
-                        )}
-                      </div>
-                    </Col>
-                    <Col md={6}>
-                      <div className="d-flex align-items-center mb-1">
-                        <h6 className="mb-0 me-2">{member.name}</h6>
-                        {member.role === 'Team Leader' && (
-                          <FaCrown className="text-warning" />
-                        )}
-                      </div>
-                      <p className="text-muted mb-2">{member.role}</p>
-                      <div>
-                        {member.skills?.map(skill => (
-                          <Badge key={skill} bg="primary" className="me-1 mb-1">
-                            {skill}
-                          </Badge>
-                        ))}
-                      </div>
-                    </Col>
-                    <Col md={4} className="text-end">
-                      <small className="text-muted d-block mb-2">{member.email}</small>
-                      {selectedTeam?.role === 'leader' && member.id !== user?.id && (
-                        <Dropdown>
-                          <Dropdown.Toggle variant="outline-secondary" size="sm">
-                            Actions
-                          </Dropdown.Toggle>
-                          <Dropdown.Menu>
-                            <Dropdown.Item>
-                              <FaComments className="me-2" />
-                              Send Message
-                            </Dropdown.Item>
-                            <Dropdown.Item>
-                              <FaEdit className="me-2" />
-                              Edit Role
-                            </Dropdown.Item>
-                            <Dropdown.Divider />
-                            <Dropdown.Item className="text-danger">
-                              <FaSignOutAlt className="me-2" />
-                              Remove from Team
-                            </Dropdown.Item>
-                          </Dropdown.Menu>
-                        </Dropdown>
-                      )}
-                    </Col>
-                  </Row>
-                </Card.Body>
-              </Card>
-            ))}
-          </Card.Body>
-        </Card>
-      </Col>
-      <Col lg={4}>
-        <Card>
-          <Card.Header>
-            <h5 className="mb-0">Team Statistics</h5>
-          </Card.Header>
-          <Card.Body>
-            <div className="text-center mb-3">
-              <h3 className="text-primary">{selectedTeam?.members?.length || 0}</h3>
-              <p className="text-muted mb-0">Total Members</p>
-            </div>
-            <hr />
-            <div className="row text-center">
-              <div className="col-6">
-                <h5 className="text-success">
-                  {selectedTeam?.members?.filter(m => m.isOnline).length || 0}
-                </h5>
-                <small className="text-muted">Online Now</small>
-              </div>
-              <div className="col-6">
-                <h5 className="text-info">
-                  {selectedTeam?.hackathons?.length || 0}
-                </h5>
-                <small className="text-muted">Active Hackathons</small>
-              </div>
-            </div>
-          </Card.Body>
-        </Card>
-      </Col>
-    </Row>
-  );
-
-  const renderFilesTab = () => (
-    <Row>
-      <Col lg={8}>
-        <Card>
-          <Card.Header>
-            <div className="d-flex justify-content-between align-items-center">
-              <h5 className="mb-0">Team Files</h5>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => setShowFileModal(true)}
-              >
-                <FaUpload className="me-2" />
-                Upload File
-              </Button>
-            </div>
-          </Card.Header>
-          <Card.Body>
-            {selectedTeam?.files?.length > 0 ? (
-              <div className="table-responsive">
-                <table className="table table-hover">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Size</th>
-                      <th>Uploaded By</th>
-                      <th>Date</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedTeam.files.map(file => (
-                      <tr key={file.id}>
-                        <td>
-                          <FaFile className="me-2 text-muted" />
-                          {file.name}
-                        </td>
-                        <td>{file.size}</td>
-                        <td>{file.uploadedBy}</td>
-                        <td>{file.uploadedAt}</td>
-                        <td>
-                          <Dropdown>
-                            <Dropdown.Toggle variant="ghost" size="sm" className="border-0">
-                              <FaCog />
-                            </Dropdown.Toggle>
-                            <Dropdown.Menu>
-                              <Dropdown.Item>
-                                <FaDownload className="me-2" />
-                                Download
-                              </Dropdown.Item>
-                              <Dropdown.Item>
-                                <FaEye className="me-2" />
-                                View
-                              </Dropdown.Item>
-                              <Dropdown.Item className="text-danger">
-                                <FaTrash className="me-2" />
-                                Delete
-                              </Dropdown.Item>
-                            </Dropdown.Menu>
-                          </Dropdown>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <Alert variant="light" className="text-center py-5">
-                <FaFile size="48" className="text-muted mb-3" />
-                <h5>No files uploaded yet</h5>
-                <p className="text-muted">Upload your first file to get started!</p>
-                <Button
-                  variant="primary"
-                  onClick={() => setShowFileModal(true)}
-                >
-                  <FaUpload className="me-2" />
-                  Upload File
-                </Button>
-              </Alert>
-            )}
-          </Card.Body>
-        </Card>
-      </Col>
-      <Col lg={4}>
-        <Card>
-          <Card.Header>
-            <h5 className="mb-0">Storage Info</h5>
-          </Card.Header>
-          <Card.Body>
-            <div className="text-center mb-3">
-              <h4 className="text-primary">15.2 MB</h4>
-              <p className="text-muted mb-0">Used of 1 GB</p>
-            </div>
-            <ProgressBar now={1.5} className="mb-3" />
-            <small className="text-muted">
-              You have plenty of storage space remaining for your team files.
-            </small>
-          </Card.Body>
-        </Card>
-      </Col>
-    </Row>
-  );
-
-  if (loading) {
-    return (
-      <Container className="py-5 text-center">
-        <Spinner animation="border" variant="primary" />
-        <p className="mt-3 text-muted">Loading your teams...</p>
+          </Modal.Body>
+        </Modal>
       </Container>
-    );
-  }
 
-  if (teams.length === 0) {
-    return (
-      <Container className="py-5 text-center">
-        <Card className="border-0 shadow-sm">
-          <Card.Body className="py-5">
-            <FaUsers size="64" className="text-muted mb-4" />
-            <h3>No Teams Yet</h3>
-            <p className="text-muted mb-4">
-              Create your first team or wait for team invitations to get started!
-            </p>
-            <Button
-              variant="primary"
-              size="lg"
-              onClick={() => setShowCreateTeamModal(true)}
-            >
-              <FaPlus className="me-2" />
-              Create Your First Team
-            </Button>
-          </Card.Body>
-        </Card>
-
-        <CreateTeamModal
-          show={showCreateTeamModal}
-          onHide={() => setShowCreateTeamModal(false)}
-          onSubmit={handleCreateTeam}
-        />
-      </Container>
-    );
-  }
-
-  return (
-    <Container fluid className="py-4">
-      {/* Header */}
-      <Row className="mb-4">
-        <Col>
-          <div className="d-flex justify-content-between align-items-center">
-            <div>
-              <h2 className="mb-1">Team Dashboard</h2>
-              <p className="text-muted mb-0">Manage your teams and collaborate on projects</p>
-            </div>
-            <Button
-              variant="primary"
-              onClick={() => setShowCreateTeamModal(true)}
-            >
-              <FaPlus className="me-2" />
-              Create Team
-            </Button>
-          </div>
-        </Col>
-      </Row>
-
-      {/* Team Selector */}
-      {teams.length > 1 && (
-        <Row className="mb-4">
-          <Col>
-            <Card className="border-0 shadow-sm">
-              <Card.Body>
-                <div className="d-flex align-items-center">
-                  <FaUsers className="me-3 text-primary" />
-                  <div className="flex-grow-1">
-                    <Form.Select
-                      value={selectedTeam?.id || ''}
-                      onChange={(e) => {
-                        const teamId = parseInt(e.target.value);
-                        const team = teams.find(t => t.id === teamId);
-                        setSelectedTeam(team);
-                      }}
-                      className="border-0"
-                    >
-                      {teams.map(team => (
-                        <option key={team.id} value={team.id}>
-                          {team.name} ({team.role})
-                        </option>
-                      ))}
-                    </Form.Select>
-                  </div>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
-        </Row>
-      )}
-
-      {/* Team Info Card */}
-      <Row className="mb-4">
-        <Col>
-          <Card className="border-0 shadow-sm">
-            <Card.Body>
-              <Row className="align-items-center">
-                <Col md={8}>
-                  <div className="d-flex align-items-center mb-2">
-                    <h4 className="mb-0 me-3">{selectedTeam?.name}</h4>
-                    <Badge bg={selectedTeam?.role === 'leader' ? 'warning' : 'info'}>
-                      {selectedTeam?.role === 'leader' ? 'Team Leader' : 'Member'}
-                    </Badge>
-                  </div>
-                  <p className="text-muted mb-0">{selectedTeam?.description}</p>
-                </Col>
-                <Col md={4} className="text-end">
-                  <div className="d-flex justify-content-end gap-2">
-                    <Button variant="outline-secondary" size="sm">
-                      <FaCog className="me-1" />
-                      Settings
-                    </Button>
-                    <Button variant="outline-primary" size="sm">
-                      <FaComments className="me-1" />
-                      Chat
-                    </Button>
-                  </div>
-                </Col>
-              </Row>
-            </Card.Body>
-          </Card>
-        </Col>
-      </Row>
-
-      {/* Tabs */}
-      <Tabs
-        activeKey={activeTab}
-        onSelect={(k) => setActiveTab(k)}
-        className="mb-4"
-      >
-        <Tab eventKey="overview" title={
-          <span>
-            <FaTrophy className="me-2" />
-            Overview
-          </span>
-        }>
-          {renderOverviewTab()}
-        </Tab>
+      <style>{`
+        .team-card:hover {
+          transform: translateY(-5px);
+          transition: all 0.3s ease;
+          box-shadow: 0 12px 40px rgba(0, 245, 255, 0.2) !important;
+        }
         
-        <Tab eventKey="members" title={
-          <span>
-            <FaUsers className="me-2" />
-            Members ({selectedTeam?.members?.length || 0})
-          </span>
-        }>
-          {renderMembersTab()}
-        </Tab>
+        .custom-tabs .nav-link {
+          border: none !important;
+          background: transparent !important;
+        }
         
-        <Tab eventKey="files" title={
-          <span>
-            <FaFile className="me-2" />
-            Files ({selectedTeam?.files?.length || 0})
-          </span>
-        }>
-          {renderFilesTab()}
-        </Tab>
-      </Tabs>
-
-      {/* Modals */}
-      <InviteMemberModal
-        show={showInviteModal}
-        onHide={() => setShowInviteModal(false)}
-        onInvite={handleInviteMember}
-        inviteEmail={inviteEmail}
-        setInviteEmail={setInviteEmail}
-      />
-
-      <CreateTeamModal
-        show={showCreateTeamModal}
-        onHide={() => setShowCreateTeamModal(false)}
-        onSubmit={handleCreateTeam}
-      />
-
-      <FileUploadModal
-        show={showFileModal}
-        onHide={() => setShowFileModal(false)}
-      />
-
-      {/* Toast Notifications */}
-      <ToastContainer position="bottom-end" className="p-3">
-        <Toast
-          show={showToast}
-          onClose={() => setShowToast(false)}
-          delay={3000}
-          autohide
-        >
-          <Toast.Header>
-            <FaBell className="me-2 text-primary" />
-            <strong className="me-auto">Notification</strong>
-          </Toast.Header>
-          <Toast.Body>{toastMessage}</Toast.Body>
-        </Toast>
-      </ToastContainer>
-    </Container>
+        .custom-tabs .nav-link.active {
+          border-bottom: 2px solid #00f5ff !important;
+          background: transparent !important;
+        }
+      `}</style>
+    </div>
   );
 };
-
-// Sub-components for modals
-const InviteMemberModal = ({ show, onHide, onInvite, inviteEmail, setInviteEmail }) => (
-  <Modal show={show} onHide={onHide}>
-    <Modal.Header closeButton>
-      <Modal.Title>Invite Team Member</Modal.Title>
-    </Modal.Header>
-    <Modal.Body>
-      <Form>
-        <Form.Group className="mb-3">
-          <Form.Label>Email Address</Form.Label>
-          <Form.Control
-            type="email"
-            placeholder="Enter email address"
-            value={inviteEmail}
-            onChange={(e) => setInviteEmail(e.target.value)}
-          />
-        </Form.Group>
-        <Alert variant="info" className="small">
-          An invitation link will be sent to this email address.
-        </Alert>
-      </Form>
-    </Modal.Body>
-    <Modal.Footer>
-      <Button variant="secondary" onClick={onHide}>
-        Cancel
-      </Button>
-      <Button variant="primary" onClick={onInvite} disabled={!inviteEmail.trim()}>
-        Send Invitation
-      </Button>
-    </Modal.Footer>
-  </Modal>
-);
-
-const CreateTeamModal = ({ show, onHide, onSubmit }) => {
-  const [teamData, setTeamData] = useState({
-    name: '',
-    description: ''
-  });
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (teamData.name.trim()) {
-      onSubmit(teamData);
-      setTeamData({ name: '', description: '' });
-    }
-  };
-
-  return (
-    <Modal show={show} onHide={onHide}>
-      <Modal.Header closeButton>
-        <Modal.Title>Create New Team</Modal.Title>
-      </Modal.Header>
-      <Form onSubmit={handleSubmit}>
-        <Modal.Body>
-          <Form.Group className="mb-3">
-            <Form.Label>Team Name *</Form.Label>
-            <Form.Control
-              type="text"
-              placeholder="Enter team name"
-              value={teamData.name}
-              onChange={(e) => setTeamData({...teamData, name: e.target.value})}
-            />
-          </Form.Group>
-          <Form.Group className="mb-3">
-            <Form.Label>Description</Form.Label>
-            <Form.Control
-              as="textarea"
-              rows={3}
-              placeholder="Describe your team's goals and interests"
-              value={teamData.description}
-              onChange={(e) => setTeamData({...teamData, description: e.target.value})}
-            />
-          </Form.Group>
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={onHide}>
-            Cancel
-          </Button>
-          <Button variant="primary" type="submit" disabled={!teamData.name.trim()}>
-            Create Team
-          </Button>
-        </Modal.Footer>
-      </Form>
-    </Modal>
-  );
-};
-
-const FileUploadModal = ({ show, onHide }) => (
-  <Modal show={show} onHide={onHide}>
-    <Modal.Header closeButton>
-      <Modal.Title>Upload File</Modal.Title>
-    </Modal.Header>
-    <Modal.Body>
-      <Form>
-        <Form.Group className="mb-3">
-          <Form.Label>Select File</Form.Label>
-          <Form.Control type="file" />
-        </Form.Group>
-        <Form.Group className="mb-3">
-          <Form.Label>Description (Optional)</Form.Label>
-          <Form.Control
-            as="textarea"
-            rows={2}
-            placeholder="Add a description for this file"
-          />
-        </Form.Group>
-      </Form>
-    </Modal.Body>
-    <Modal.Footer>
-      <Button variant="secondary" onClick={onHide}>
-        Cancel
-      </Button>
-      <Button variant="primary">
-        Upload File
-      </Button>
-    </Modal.Footer>
-  </Modal>
-);
 
 export default TeamDashboard;

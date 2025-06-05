@@ -38,7 +38,7 @@ const AppNavbar = () => {
   return (
     <>
       {/* Enhanced Cyberpunk CSS Styles */}
-      <style jsx>{`
+      <style >{`
         .cyberpunk-navbar {
           background: ${isScrolled 
             ? 'linear-gradient(135deg, rgba(10, 10, 10, 0.95) 0%, rgba(26, 0, 51, 0.95) 50%, rgba(0, 5, 17, 0.95) 100%) !important'

@@ -6,7 +6,7 @@ const Footer = () => {
   return (
     <>
       {/* Cyberpunk CSS Styles */}
-      <style jsx>{`
+      <style>{`
         .cyberpunk-footer {
           background: linear-gradient(135deg, #0a0a0a 0%, #1a0033 50%, #000511 100%);
           border-top: 2px solid #00ffff;

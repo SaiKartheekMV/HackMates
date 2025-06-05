@@ -1,5 +1,6 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import api from '../services/api';
+import { authAPI, userAPI } from '../services/api';
 
 const AuthContext = createContext();
 
@@ -29,8 +30,7 @@ export const AuthProvider = ({ children }) => {
 
   const checkAuthStatus = async () => {
     try {
-      const response = await api.get('/auth/profile');
-      // Handle response structure from backend
+      const response = await userAPI.getCurrentUser();
       const userData = response.data.user || response.data;
       setUser(userData);
       setIsAuthenticated(true);
@@ -52,7 +52,17 @@ export const AuthProvider = ({ children }) => {
       
       console.log('Attempting login with:', { email: credentials.email });
       
-      const response = await api.post('/auth/login', credentials);
+      // Validate credentials
+      if (!credentials.email || !credentials.password) {
+        throw new Error('Email and password are required');
+      }
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(credentials.email)) {
+        throw new Error('Please enter a valid email address');
+      }
+      
+      const response = await authAPI.login(credentials);
       const { token, user } = response.data;
       
       if (!token || !user) {
@@ -64,14 +74,41 @@ export const AuthProvider = ({ children }) => {
       setIsAuthenticated(true);
       
       console.log('Login successful');
-      return { success: true };
+      return { success: true, user };
       
     } catch (error) {
       console.error('Login error:', error);
-      const errorMessage = error.response?.data?.message || 
-                          error.response?.data?.error || 
-                          error.message || 
-                          'Login failed';
+      
+      let errorMessage;
+      
+      if (error.response) {
+        const status = error.response.status;
+        const serverMessage = error.response.data?.message || error.response.data?.error;
+        
+        switch (status) {
+          case 400:
+            errorMessage = serverMessage || 'Invalid email or password';
+            break;
+          case 401:
+            errorMessage = 'Invalid email or password';
+            break;
+          case 403:
+            errorMessage = 'Account access denied. Please verify your email.';
+            break;
+          case 429:
+            errorMessage = 'Too many login attempts. Please try again later.';
+            break;
+          case 500:
+            errorMessage = 'Server error. Please try again later.';
+            break;
+          default:
+            errorMessage = serverMessage || 'Login failed. Please try again.';
+        }
+      } else if (error.request) {
+        errorMessage = 'Cannot connect to server. Please check your internet connection.';
+      } else {
+        errorMessage = error.message || 'Login failed. Please try again.';
+      }
       
       setError(errorMessage);
       return { 
@@ -114,7 +151,7 @@ export const AuthProvider = ({ children }) => {
         throw new Error('Password must be at least 6 characters long');
       }
       
-      // Optional: Only validate password confirmation if provided
+      // Password confirmation validation (if provided)
       if (userData.confirmPassword && userData.password !== userData.confirmPassword) {
         throw new Error('Passwords do not match');
       }
@@ -122,7 +159,7 @@ export const AuthProvider = ({ children }) => {
       // Prepare data for backend (remove confirmPassword if it exists)
       const { confirmPassword, ...registrationData } = userData;
       
-      const response = await api.post('/auth/register', registrationData);
+      const response = await authAPI.register(registrationData);
       console.log('Registration response:', response.data);
       
       const { token, user } = response.data;
@@ -136,16 +173,14 @@ export const AuthProvider = ({ children }) => {
       setIsAuthenticated(true);
       
       console.log('Registration successful');
-      return { success: true };
+      return { success: true, user };
       
     } catch (error) {
       console.error('Registration error:', error);
       
-      // Handle different types of errors
       let errorMessage;
       
       if (error.response) {
-        // Server responded with error status
         const status = error.response.status;
         const serverMessage = error.response.data?.message || error.response.data?.error;
         
@@ -153,7 +188,8 @@ export const AuthProvider = ({ children }) => {
         
         switch (status) {
           case 400:
-            if (serverMessage?.toLowerCase().includes('already exists')) {
+            if (serverMessage?.toLowerCase().includes('already exists') || 
+                serverMessage?.toLowerCase().includes('duplicate')) {
               errorMessage = 'An account with this email already exists. Please try logging in instead.';
             } else {
               errorMessage = serverMessage || 'Invalid registration data. Please check your information.';
@@ -165,6 +201,9 @@ export const AuthProvider = ({ children }) => {
           case 422:
             errorMessage = serverMessage || 'Please check your input data and try again.';
             break;
+          case 429:
+            errorMessage = 'Too many registration attempts. Please try again later.';
+            break;
           case 500:
             errorMessage = 'Server error. Please try again later.';
             break;
@@ -172,11 +211,9 @@ export const AuthProvider = ({ children }) => {
             errorMessage = serverMessage || `Server error: ${status}`;
         }
       } else if (error.request) {
-        // Request was made but no response received
         console.error('No response received:', error.request);
         errorMessage = 'Cannot connect to server. Please check your internet connection and try again.';
       } else {
-        // Something else happened (validation errors, etc.)
         errorMessage = error.message || 'Registration failed. Please try again.';
       }
       
@@ -194,9 +231,9 @@ export const AuthProvider = ({ children }) => {
     try {
       setLoading(true);
       
-      // Optionally call logout endpoint
+      // Call logout endpoint (optional - will continue even if it fails)
       try {
-        await api.post('/auth/logout');
+        await authAPI.logout();
       } catch (logoutError) {
         console.warn('Logout API call failed:', logoutError);
         // Continue with local logout even if API call fails
@@ -220,23 +257,22 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const updateProfile = async (updatedData) => {
+  const updateUser = async (updatedData) => {
     try {
       setLoading(true);
       setError(null);
       
-      const response = await api.put('/auth/profile', updatedData);
-      // Handle response structure from backend
+      const response = await userAPI.updateUser(updatedData);
       const updatedUser = response.data.user || response.data;
       
       setUser(updatedUser);
       
-      return { success: true };
+      return { success: true, user: updatedUser };
     } catch (error) {
-      console.error('Profile update error:', error);
+      console.error('User update error:', error);
       const errorMessage = error.response?.data?.message || 
                           error.response?.data?.error || 
-                          'Profile update failed';
+                          'User update failed';
       
       setError(errorMessage);
       return { 
@@ -248,27 +284,182 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const deleteAccount = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      await userAPI.deleteAccount();
+      
+      // Clear local state
+      localStorage.removeItem('token');
+      setUser(null);
+      setIsAuthenticated(false);
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Account deletion error:', error);
+      const errorMessage = error.response?.data?.message || 
+                          error.response?.data?.error || 
+                          'Account deletion failed';
+      
+      setError(errorMessage);
+      return { 
+        success: false, 
+        error: errorMessage
+      };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const forgotPassword = async (email) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      if (!email) {
+        throw new Error('Email is required');
+      }
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        throw new Error('Please enter a valid email address');
+      }
+      
+      await authAPI.forgotPassword(email);
+      
+      return { 
+        success: true, 
+        message: 'Password reset link has been sent to your email' 
+      };
+    } catch (error) {
+      console.error('Forgot password error:', error);
+      const errorMessage = error.response?.data?.message || 
+                          error.response?.data?.error || 
+                          error.message ||
+                          'Failed to send password reset email';
+      
+      setError(errorMessage);
+      return { 
+        success: false, 
+        error: errorMessage
+      };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetPassword = async (token, password) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      if (!token || !password) {
+        throw new Error('Token and password are required');
+      }
+
+      if (password.length < 6) {
+        throw new Error('Password must be at least 6 characters long');
+      }
+      
+      const response = await authAPI.resetPassword(token, password);
+      
+      // Optionally auto-login after password reset
+      const { token: newToken, user } = response.data;
+      if (newToken && user) {
+        localStorage.setItem('token', newToken);
+        setUser(user);
+        setIsAuthenticated(true);
+      }
+      
+      return { 
+        success: true, 
+        message: 'Password has been reset successfully' 
+      };
+    } catch (error) {
+      console.error('Reset password error:', error);
+      const errorMessage = error.response?.data?.message || 
+                          error.response?.data?.error || 
+                          error.message ||
+                          'Failed to reset password';
+      
+      setError(errorMessage);
+      return { 
+        success: false, 
+        error: errorMessage
+      };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const refreshToken = async () => {
+    try {
+      const response = await authAPI.refreshToken();
+      const { token } = response.data;
+      
+      if (token) {
+        localStorage.setItem('token', token);
+        return { success: true };
+      }
+      
+      throw new Error('No token received');
+    } catch (error) {
+      console.error('Token refresh failed:', error);
+      localStorage.removeItem('token');
+      setUser(null);
+      setIsAuthenticated(false);
+      return { success: false };
+    }
+  };
+
   const clearError = () => {
     setError(null);
   };
 
-  // Helper function to get user's full name
+  // Helper functions
   const getUserFullName = () => {
     if (!user) return '';
     return `${user.firstName || ''} ${user.lastName || ''}`.trim();
   };
 
+  const getUserInitials = () => {
+    if (!user) return '';
+    const firstName = user.firstName || '';
+    const lastName = user.lastName || '';
+    return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
+  };
+
+  const isEmailVerified = () => {
+    return user?.isEmailVerified || false;
+  };
+
   const value = {
+    // State
     user,
     isAuthenticated,
     loading,
     error,
+    
+    // Auth methods
     login,
     register,
     logout,
-    updateProfile,
+    forgotPassword,
+    resetPassword,
+    refreshToken,
+    
+    // User methods
+    updateUser,
+    deleteAccount,
+    
+    // Utility methods
+    checkAuthStatus,
     clearError,
-    getUserFullName
+    getUserFullName,
+    getUserInitials,
+    isEmailVerified
   };
 
   return (

@@ -146,7 +146,7 @@ const fetchHackathons = useCallback(async () => {
 
     console.log('API Request params:', params);
 
-    const response = await hackathonAPI.getAllHackathons(params);
+    const response = await hackathonAPI.getHackathons(params);
     console.log('Processed API Response:', response);
     
     // The response.data should now contain the hackathons array

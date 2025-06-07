@@ -22,7 +22,7 @@ const getMyTeams = async (req, res) => {
 
     res.json({
       success: true,
-      data: teams
+      teams: teams
     });
   } catch (error) {
     console.error('Get my teams error:', error);
@@ -35,35 +35,42 @@ const getMyTeams = async (req, res) => {
 
 // Create new team
 const createTeam = async (req, res) => {
+  console.log('=== CREATE TEAM DEBUG START ===');
+  console.log('Request body:', req.body);
+  console.log('Request user:', req.user);
+  console.log('User ID:', req.user?._id);
+  console.log('User ID type:', typeof req.user?._id);
+  
   try {
     const { name, description, hackathonId, requiredSkills, maxMembers, isPublic } = req.body;
+    
+    console.log('Extracted data:', { name, description, hackathonId });
+    
+    if (!req.user || !req.user._id) {
+      console.log('ERROR: No user found in request');
+      return res.status(401).json({
+        success: false,
+        message: 'User not authenticated'
+      });
+    }
+    
     const userId = req.user._id;
+    console.log('Using userId:', userId);
 
-    // Verify hackathon exists
+    // Test database connection
+    console.log('Testing Hackathon model...');
     const hackathon = await Hackathon.findById(hackathonId);
+    console.log('Hackathon found:', hackathon ? 'Yes' : 'No');
+    
     if (!hackathon) {
+      console.log('ERROR: Hackathon not found');
       return res.status(404).json({
         success: false,
         message: 'Hackathon not found'
       });
     }
 
-    // Check if user already has a team for this hackathon
-    const existingTeam = await Team.findOne({
-      hackathonId,
-      $or: [
-        { leaderId: userId },
-        { 'members.userId': userId, 'members.status': 'active' }
-      ]
-    });
-
-    if (existingTeam) {
-      return res.status(400).json({
-        success: false,
-        message: 'You already have a team for this hackathon'
-      });
-    }
-
+    console.log('Creating team object...');
     const team = new Team({
       name,
       description,
@@ -81,25 +88,33 @@ const createTeam = async (req, res) => {
       status: 'forming'
     });
 
+    console.log('Team object created:', team);
+    console.log('Saving team...');
+    
     await team.save();
-
-    const populatedTeam = await Team.findById(team._id)
-      .populate('hackathonId', 'title startDate endDate')
-      .populate('leaderId', 'firstName lastName profilePicture')
-      .populate('members.userId', 'firstName lastName profilePicture');
+    console.log('Team saved successfully');
 
     res.status(201).json({
       success: true,
       message: 'Team created successfully',
-      data: populatedTeam
+      data: team
     });
+    
   } catch (error) {
-    console.error('Create team error:', error);
+    console.error('=== DETAILED ERROR ===');
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    console.error('Error name:', error.name);
+    console.error('=== END ERROR ===');
+    
     res.status(500).json({
       success: false,
-      message: 'Server error'
+      message: 'Server error',
+      error: error.message
     });
   }
+  
+  console.log('=== CREATE TEAM DEBUG END ===');
 };
 
 // Get team details

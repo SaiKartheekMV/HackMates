@@ -8,9 +8,11 @@ import Home from '../pages/Home';
 import Login from '../pages/Login';
 import Register from '../pages/Register';
 import Hackathons from '../pages/Hackathons';
+import Profile from '../pages/Profile';
 import ProfileSetup from '../pages/ProfileSetup';
 import FindPartners from '../pages/FindPartners';
 import TeamDashboard from '../pages/TeamDashboard';
+
 
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
@@ -70,6 +72,15 @@ const AppRoutes = () => {
       />
 
       {/* Protected Routes */}
+      <Route
+        path="/profile"
+        element={
+          <ProtectedRoute>
+            <Profile />
+          </ProtectedRoute>
+        }
+      />
+
       <Route
         path="/profile-setup"
         element={

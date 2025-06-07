@@ -56,24 +56,41 @@ export const userAPI = {
 // Profile API calls
 export const profileAPI = {
   getMyProfile: () => api.get('/profiles/me'),
+  
   updateMyProfile: (profileData) => api.put('/profiles/me', profileData),
+  
+  // New method specifically for profile setup
+  setupProfile: (formData) => api.put('/profiles/me', formData),
+  
   uploadResume: (formData) => api.post('/profiles/me/upload-resume', formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   }),
+  
   calculateCompletion: () => api.post('/profiles/me/calculate-completion'),
-  getPublicProfile: (userId) => api.get(`/profiles/${userId}`)
+  
+  getPublicProfile: (userId) => api.get(`/profiles/${userId}`),
+  
+  // Search profiles with additional filters
+  searchProfiles: (filters) => {
+    const params = new URLSearchParams();
+    if (filters.skills) params.append('skills', filters.skills.join(','));
+    if (filters.location) params.append('location', filters.location);
+    if (filters.roles) params.append('roles', filters.roles.join(','));
+    if (filters.page) params.append('page', filters.page);
+    if (filters.limit) params.append('limit', filters.limit);
+    
+    return api.get(`/profiles/search?${params.toString()}`);
+  }
 };
 
 // Hackathon API calls
 export const hackathonAPI = {
-   getAllHackathons: async (params) => {
+   getHackathons: async (params = {}) => {
     try {
       const response = await api.get('/hackathons', { params });
-      console.log('Raw API Response:', response.data); // Debug log
-      
-      // Extract hackathons from the nested structure
       return {
-        data: response.data.hackathons || response.data.data?.hackathons || response.data
+        data: response.data.data.hackathons || [], // Extract the hackathons array
+        pagination: response.data.data.pagination
       };
     } catch (error) {
       console.error('API Error:', error);
@@ -104,21 +121,29 @@ export const teamAPI = {
         data: response.data.teams || response.data.data?.teams || response.data
       };
     } catch (error) {
-      console.error('API Error:', error);
+      console.error('API Error (getMyTeams):', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
       throw error;
     }
   },
+
   createTeam: async (teamData) => {
     try {
+      console.log('Sending team data:', teamData);
       const response = await api.post('/teams', teamData);
       return {
         data: response.data.team || response.data.data?.team || response.data
       };
     } catch (error) {
-      console.error('API Error:', error);
+      console.error('API Error (createTeam):', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      console.error('Request data that failed:', teamData);
       throw error;
     }
   },
+
   getTeam: async (id) => {
     try {
       const response = await api.get(`/teams/${id}`);
@@ -126,15 +151,83 @@ export const teamAPI = {
         data: response.data.team || response.data.data?.team || response.data
       };
     } catch (error) {
-      console.error('API Error:', error);
+      console.error('API Error (getTeam):', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
       throw error;
     }
   },
-  updateTeam: (id, teamData) => api.put(`/teams/${id}`, teamData),
-  deleteTeam: (id) => api.delete(`/teams/${id}`),
-  joinTeam: (id) => api.post(`/teams/${id}/join`),
-  leaveTeam: (id) => api.post(`/teams/${id}/leave`),
-  removeMember: (teamId, memberId) => api.delete(`/teams/${teamId}/member/${memberId}`),
+
+  updateTeam: async (id, teamData) => {
+    try {
+      console.log('Updating team with data:', teamData);
+      const response = await api.put(`/teams/${id}`, teamData);
+      return {
+        data: response.data.team || response.data.data?.team || response.data
+      };
+    } catch (error) {
+      console.error('API Error (updateTeam):', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      throw error;
+    }
+  },
+
+  deleteTeam: async (id) => {
+    try {
+      const response = await api.delete(`/teams/${id}`);
+      return {
+        data: response.data
+      };
+    } catch (error) {
+      console.error('API Error (deleteTeam):', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      throw error;
+    }
+  },
+
+  joinTeam: async (id) => {
+    try {
+      const response = await api.post(`/teams/${id}/join`);
+      return {
+        data: response.data
+      };
+    } catch (error) {
+      console.error('API Error (joinTeam):', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      throw error;
+    }
+  },
+
+  leaveTeam: async (id) => {
+    try {
+      const response = await api.post(`/teams/${id}/leave`);
+      return {
+        data: response.data
+      };
+    } catch (error) {
+      console.error('API Error (leaveTeam):', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      throw error;
+    }
+  },
+
+  removeMember: async (teamId, memberId) => {
+    try {
+      const response = await api.delete(`/teams/${teamId}/member/${memberId}`);
+      return {
+        data: response.data
+      };
+    } catch (error) {
+      console.error('API Error (removeMember):', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      throw error;
+    }
+  },
 };
 
 // Request API calls

@@ -1,677 +1,1519 @@
-/* eslint-disable react-hooks/exhaustive-deps */
-/* eslint-disable no-unused-vars */
-import React, { useState, useEffect } from 'react';
-import { Container, Row, Col, Card, Badge, Button, Modal, Form, Alert, Spinner, Tabs, Tab, ListGroup, ProgressBar } from 'react-bootstrap';
-import { teamAPI } from '../services/api';
+import React, { useState, useEffect, } from 'react';
+import { teamAPI, hackathonAPI} from '../services/api'; // Adjust import path as needed
 
 const TeamDashboard = () => {
+  // State management
+  const [activeTab, setActiveTab] = useState('browse');
   const [teams, setTeams] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [myTeams, setMyTeams] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
   const [selectedTeam, setSelectedTeam] = useState(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
-  const [alert, setAlert] = useState({ show: false, message: '', type: '' });
-  const [activeTab, setActiveTab] = useState('my-teams');
+  const [hackathons, setHackathons] = useState([]); // State for hackathons
   
-  // Form states
-  const [createForm, setCreateForm] = useState({
-    name: '',
-    description: '',
-    hackathonId: '',
-    requiredSkills: [],
-    maxMembers: 4,
-    isPublic: true
-  });
 
-  // Mock data for demonstration
-  const mockTeams = [
-    {
-      _id: '1',
-      name: 'Neural Nexus',
-      description: 'AI-powered solution for smart city infrastructure',
-      hackathonId: { _id: 'h1', title: 'TechCrunch Disrupt 2025', startDate: '2025-07-15', endDate: '2025-07-17', status: 'upcoming' },
-      leaderId: { _id: 'u1', firstName: 'Alex', lastName: 'Chen', profilePicture: null },
-      members: [
-        { userId: { _id: 'u1', firstName: 'Alex', lastName: 'Chen' }, role: 'Team Leader', status: 'active' },
-        { userId: { _id: 'u2', firstName: 'Sarah', lastName: 'Kim' }, role: 'Frontend Dev', status: 'active' },
-        { userId: { _id: 'u3', firstName: 'Mike', lastName: 'Johnson' }, role: 'AI Engineer', status: 'active' }
-      ],
-      requiredSkills: ['React', 'Python', 'TensorFlow', 'Node.js'],
-      maxMembers: 4,
-      status: 'forming',
-      isPublic: true,
-      createdAt: '2025-06-01'
-    },
-    {
-      _id: '2',
-      name: 'Quantum Coders',
-      description: 'Blockchain-based decentralized voting system',
-      hackathonId: { _id: 'h2', title: 'ETHGlobal 2025', startDate: '2025-08-10', endDate: '2025-08-12' },
-      leaderId: { _id: 'u4', firstName: 'David', lastName: 'Park' },
-      members: [
-        { userId: { _id: 'u4', firstName: 'David', lastName: 'Park' }, role: 'Team Leader', status: 'active' },
-        { userId: { _id: 'u5', firstName: 'Emma', lastName: 'Wilson' }, role: 'Smart Contract Dev', status: 'active' }
-      ],
-      requiredSkills: ['Solidity', 'Web3.js', 'React', 'IPFS'],
-      maxMembers: 5,
-      status: 'forming',
-      isPublic: true,
-      createdAt: '2025-06-03'
-    }
-  ];
+  // Form state for team creation
+const [teamForm, setTeamForm] = useState({
+  name: '',
+  description: '',
+  hackathonId: '', // Required field for hackathon selection
+  maxMembers: 5,
+  requiredSkills: [],
+  lookingFor: { 
+    roles: [], 
+    count: 1, 
+    description: '' 
+  },
+  isPublic: true,
+  projectDetails: { 
+    idea: '', 
+    technologies: [] 
+  },
+  communication: { 
+    preferredMethod: 'discord', 
+    discord: '', 
+    email: '' 
+  },
+  preferences: {
+    timezone: 'UTC',
+    workingStyle: 'collaborative',
+    meetingFrequency: 'as_needed',
+    experienceLevel: 'mixed'
+  },
+  tags: []
+});
 
- const fetchTeams = async () => {
+  const [newSkill, setNewSkill] = useState({ skill: '', level: 'intermediate', priority: 'medium' });
+  const [newTag, setNewTag] = useState('');
+  const [newTech, setNewTech] = useState('');
+
+  // Predefined options
+  const skillLevels = ['beginner', 'intermediate', 'advanced'];
+  const priorities = ['low', 'medium', 'high', 'critical'];
+  const roles = ['developer', 'designer', 'data_scientist', 'pm', 'marketer', 'other'];
+  const workingStyles = ['collaborative', 'independent', 'mixed'];
+  const meetingFreq = ['daily', 'every_other_day', 'weekly', 'as_needed'];
+  const expLevels = ['beginner', 'intermediate', 'advanced', 'mixed'];
+  const commMethods = ['discord', 'slack', 'whatsapp', 'telegram', 'email'];
+
+  // Load data on component mount
+  useEffect(() => {
+    loadMyTeams();
+    loadBrowseTeams();
+  }, []);
+
+  useEffect(() => {
+  if (showCreateModal) {
+    fetchHackathonsForDropdown();
+  }
+}, [showCreateModal]);
+
+const fetchHackathonsForDropdown = async () => {
   try {
-    setLoading(true);
-    const response = await teamAPI.getMyTeams();
-    // Access the data properly
-    setTeams(response.data.teams || response.data || []);
+    console.log('Fetching hackathons for dropdown...');
+    
+    // Fetch only active/open hackathons for team creation
+    const params = {
+      status: 'upcoming,ongoing', // Only fetch hackathons that are open for registration
+      sortBy: 'registrationDeadline',
+      limit: 50 // Limit to avoid too many options
+    };
+    
+    const response = await hackathonAPI.getHackathons(params);
+    console.log('Hackathons fetched for dropdown:', response);
+    
+    // Make sure we have the hackathons data
+    const hackathonData = response.data || [];
+    console.log('Setting hackathons for dropdown:', hackathonData);
+    
+    // You might want to use a separate state for dropdown hackathons
+    // or reuse the existing hackathons state
+    setHackathons(Array.isArray(hackathonData) ? hackathonData : []);
+    
   } catch (error) {
-    console.error('Error fetching teams:', error);
-    const errorMessage = error.response?.data?.message || 'Failed to load teams';
-    showAlert(errorMessage, 'danger');
-  } finally {
-    setLoading(false);
+    console.error('Error fetching hackathons for dropdown:', error);
+    // Handle error - maybe show a toast notification
   }
 };
+
+
+  const loadMyTeams = async () => {
+    try {
+      setLoading(true);
+      const response = await teamAPI.getMyTeams();
+      setMyTeams(Array.isArray(response.data) ? response.data : []);
+    } catch (err) {
+      setError('Failed to load your teams');
+      console.error('Error loading my teams:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadBrowseTeams = async () => {
+    try {
+      setLoading(true);
+      // You'll need to implement a browse/search endpoint
+      // For now, using the same endpoint
+      const response = await teamAPI.getMyTeams();
+      setTeams(Array.isArray(response.data) ? response.data : []);
+    } catch (err) {
+      setError('Failed to load teams');
+      console.error('Error loading browse teams:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
 const handleCreateTeam = async (e) => {
   e.preventDefault();
   try {
     setLoading(true);
-    const response = await teamAPI.createTeam(createForm);
+    setError(''); // Clear any previous errors
     
-    // Refresh teams list
-    const teamsResponse = await teamAPI.getMyTeams();
-    setTeams(teamsResponse.data.teams || teamsResponse.data || []);
+    // Clean the team data before sending
+    const cleanedTeamData = { ...teamForm };
     
+    // CRITICAL FIX: Ensure hackathonId is provided and valid
+    if (!cleanedTeamData.hackathonId || cleanedTeamData.hackathonId.trim() === '') {
+      setError('Please select a hackathon before creating a team');
+      setLoading(false);
+      return; // Stop execution if no hackathonId
+    }
+    
+    // Remove empty arrays if they're not required
+    if (cleanedTeamData.requiredSkills && cleanedTeamData.requiredSkills.length === 0) {
+      delete cleanedTeamData.requiredSkills;
+    }
+    
+    // Ensure maxMembers is a number
+    if (cleanedTeamData.maxMembers) {
+      cleanedTeamData.maxMembers = Number(cleanedTeamData.maxMembers);
+    }
+    
+    console.log('Cleaned team data being sent:', cleanedTeamData);
+    
+    const response = await teamAPI.createTeam(cleanedTeamData);
+    
+    // Update the teams list
+    setMyTeams(prev => [...prev, response.data]);
+    
+    // Close modal and reset form
     setShowCreateModal(false);
-    setCreateForm({ 
-      name: '', 
-      description: '', 
-      hackathonId: '', 
-      requiredSkills: [], 
-      maxMembers: 4, 
-      isPublic: true 
-    });
-    showAlert('Team created successfully!', 'success');
-  } catch (error) {
-    console.error('Error creating team:', error);
-    const errorMessage = error.response?.data?.message || 'Failed to create team';
-    showAlert(errorMessage, 'danger');
+    resetForm();
+    setActiveTab('my-teams');
+    
+    console.log('Team created successfully:', response.data);
+    
+  } catch (err) {
+    console.error('Error creating team:', err);
+    
+    // Enhanced error handling
+    if (err.response?.data?.details) {
+      console.log('=== DETAILED VALIDATION ERRORS ===');
+      err.response.data.details.forEach((detail, index) => {
+        console.log(`Validation Error ${index + 1}:`, detail);
+        console.log('Field:', detail.field || detail.path || 'unknown');
+        console.log('Message:', detail.message || detail.msg || 'unknown');
+        console.log('Value:', detail.value || 'unknown');
+        console.log('---');
+      });
+    }
+    
+    // Set more specific error message
+    let errorMessage = 'Failed to create team';
+    
+    if (err.response?.data?.details) {
+      const validationErrors = err.response.data.details;
+      if (validationErrors.some(error => error.path === 'hackathonId')) {
+        errorMessage = 'Please select a valid hackathon';
+      } else {
+        errorMessage = validationErrors[0]?.msg || errorMessage;
+      }
+    } else if (err.response?.data?.error) {
+      errorMessage = err.response.data.error;
+    }
+    
+    setError(errorMessage);
+    
   } finally {
     setLoading(false);
   }
 };
 
-const handleJoinTeam = async (teamId) => {
-  try {
-    await teamAPI.joinTeam(teamId);
-    showAlert('Successfully joined team!', 'success');
-    
-    // Refresh teams if needed
-    if (activeTab === 'my-teams') {
-      const response = await teamAPI.getMyTeams();
-      setTeams(response.data);
+  const handleJoinTeam = async (teamId) => {
+    try {
+      setLoading(true);
+      await teamAPI.joinTeam(teamId);
+      loadMyTeams();
+      loadBrowseTeams();
+    } catch (err) {
+      setError('Failed to join team');
+      console.error('Error joining team:', err);
+    } finally {
+      setLoading(false);
     }
-  } catch (error) {
-    console.error('Error joining team:', error);
-    showAlert(error.response?.data?.message || 'Failed to join team', 'danger');
-  }
-};
+  };
 
   const handleLeaveTeam = async (teamId) => {
-  try {
-    await teamAPI.leaveTeam(teamId);
-    
-    // Remove team from local state
-    setTeams(prev => prev.filter(team => team._id !== teamId));
-    showAlert('Successfully left team', 'success');
-  } catch (error) {
-    console.error('Error leaving team:', error);
-    showAlert(error.response?.data?.message || 'Failed to leave team', 'danger');
-  }
-};
-
-const [exploreTeams, setExploreTeams] = useState([]);
-
-
-  const showAlert = (message, type) => {
-    setAlert({ show: true, message, type });
-    setTimeout(() => setAlert({ show: false, message: '', type: '' }), 3000);
-  };
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'forming': return 'warning';
-      case 'complete': return 'success';
-      case 'active': return 'primary';
-      default: return 'secondary';
+    try {
+      setLoading(true);
+      await teamAPI.leaveTeam(teamId);
+      loadMyTeams();
+      loadBrowseTeams();
+    } catch (err) {
+      setError('Failed to leave team');
+      console.error('Error leaving team:', err);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const TeamCard = ({ team, isMyTeam = true }) => (
-    <Card className="team-card mb-4 h-100" style={{
-      background: 'linear-gradient(145deg, #0a0a0a 0%, #1a1a2e 100%)',
-      border: '1px solid #16213e',
-      borderRadius: '15px',
-      boxShadow: '0 8px 32px rgba(0, 123, 255, 0.1)'
-    }}>
-      <Card.Header style={{
-        background: 'linear-gradient(90deg, #0f3460 0%, #16213e 100%)',
-        border: 'none',
-        borderRadius: '15px 15px 0 0'
-      }}>
-        <div className="d-flex justify-content-between align-items-center">
-          <h5 className="mb-0" style={{ color: '#00f5ff', fontWeight: '600' }}>
-            {team.name}
-          </h5>
-          <Badge bg={getStatusColor(team.status)} style={{
-            background: team.status === 'forming' ? '#ffd700' : '#00ff00',
-            color: '#000',
-            textTransform: 'uppercase',
-            fontSize: '0.7rem',
-            fontWeight: '700'
-          }}>
-            {team.status}
-          </Badge>
-        </div>
-      </Card.Header>
-      
-      <Card.Body style={{ color: '#e0e6ed' }}>
-        <p className="text-muted mb-3" style={{ color: '#8892b0 !important' }}>
-          {team.description}
-        </p>
-        
-        <div className="mb-3">
-          <small style={{ color: '#64ffda', fontWeight: '600' }}>HACKATHON EVENT</small>
-          <div style={{ color: '#ccd6f6' }}>{team.hackathonId.title}</div>
-          <small style={{ color: '#8892b0' }}>
-            {new Date(team.hackathonId.startDate).toLocaleDateString()} - {new Date(team.hackathonId.endDate).toLocaleDateString()}
-          </small>
-        </div>
+  const resetForm = () => {
+    setTeamForm({
+      name: '',
+      description: '',
+      hackathonId: '',
+      maxMembers: 5,
+      requiredSkills: [],
+      lookingFor: { roles: [], count: 1, description: '' },
+      isPublic: true,
+      projectDetails: { idea: '', technologies: [] },
+      communication: { preferredMethod: 'discord', discord: '', email: '' },
+      preferences: {
+        timezone: 'UTC',
+        workingStyle: 'collaborative',
+        meetingFrequency: 'as_needed',
+        experienceLevel: 'mixed'
+      },
+      tags: []
+    });
+  };
 
-        <div className="mb-3">
-          <small style={{ color: '#64ffda', fontWeight: '600' }}>TEAM COMPOSITION</small>
-          <ProgressBar 
-            now={(team.members.filter(m => m.status === 'active').length / team.maxMembers) * 100}
-            style={{ height: '8px', background: '#16213e' }}
-          >
-            <ProgressBar 
-              now={(team.members.filter(m => m.status === 'active').length / team.maxMembers) * 100}
-              style={{ background: 'linear-gradient(90deg, #ffd700, #ff6b6b)' }}
-            />
-          </ProgressBar>
-          <small style={{ color: '#8892b0' }}>
-            {team.members.filter(m => m.status === 'active').length}/{team.maxMembers} members
-          </small>
-        </div>
+  const addSkill = () => {
+    if (newSkill.skill.trim()) {
+      setTeamForm(prev => ({
+        ...prev,
+        requiredSkills: [...prev.requiredSkills, { ...newSkill }]
+      }));
+      setNewSkill({ skill: '', level: 'intermediate', priority: 'medium' });
+    }
+  };
 
-        <div className="mb-3">
-          <small style={{ color: '#64ffda', fontWeight: '600' }}>REQUIRED SKILLS</small>
-          <div className="d-flex flex-wrap gap-1 mt-1">
-            {team.requiredSkills.slice(0, 4).map((skill, idx) => (
-              <Badge 
-                key={idx} 
-                style={{
-                  background: 'linear-gradient(45deg, #ff6b6b, #ffd700)',
-                  color: '#000',
-                  fontSize: '0.7rem',
-                  fontWeight: '600'
-                }}
-              >
-                {skill}
-              </Badge>
-            ))}
-            {team.requiredSkills.length > 4 && (
-              <Badge style={{ background: '#16213e', color: '#64ffda' }}>
-                +{team.requiredSkills.length - 4}
-              </Badge>
-            )}
+  const removeSkill = (index) => {
+    setTeamForm(prev => ({
+      ...prev,
+      requiredSkills: prev.requiredSkills.filter((_, i) => i !== index)
+    }));
+  };
+
+  const addTag = () => {
+    if (newTag.trim() && !teamForm.tags.includes(newTag.trim().toLowerCase())) {
+      setTeamForm(prev => ({
+        ...prev,
+        tags: [...prev.tags, newTag.trim().toLowerCase()]
+      }));
+      setNewTag('');
+    }
+  };
+
+  const removeTag = (tag) => {
+    setTeamForm(prev => ({
+      ...prev,
+      tags: prev.tags.filter(t => t !== tag)
+    }));
+  };
+
+  const addTechnology = () => {
+    if (newTech.trim() && !teamForm.projectDetails.technologies.includes(newTech.trim())) {
+      setTeamForm(prev => ({
+        ...prev,
+        projectDetails: {
+          ...prev.projectDetails,
+          technologies: [...prev.projectDetails.technologies, newTech.trim()]
+        }
+      }));
+      setNewTech('');
+    }
+  };
+
+  const removeTechnology = (tech) => {
+    setTeamForm(prev => ({
+      ...prev,
+      projectDetails: {
+        ...prev.projectDetails,
+        technologies: prev.projectDetails.technologies.filter(t => t !== tech)
+      }
+    }));
+  };
+
+
+  
+
+  const TeamCard = ({ team, showJoinButton = false, showManageButton = false }) => (
+    <div className="team-card">
+      <div className="card-header">
+        <div className="d-flex justify-content-between align-items-start">
+          <div>
+            <h5 className="team-name">{team.name}</h5>
+            <div className="team-status">
+              <span className={`status-badge ${team.status}`}>{team.status}</span>
+              <span className={`visibility-badge ${team.isPublic ? 'public' : 'private'}`}>
+                {team.isPublic ? 'Public' : 'Private'}
+              </span>
+            </div>
+          </div>
+          <div className="team-size">
+            {team.currentSize || 1}/{team.maxMembers}
           </div>
         </div>
-
-        <div className="mb-3">
-          <small style={{ color: '#64ffda', fontWeight: '600' }}>TEAM MEMBERS</small>
-          {team.members.filter(m => m.status === 'active').map((member, idx) => (
-            <div key={idx} className="d-flex align-items-center mt-1">
-              <div 
-                className="rounded-circle me-2" 
-                style={{
-                  width: '24px',
-                  height: '24px',
-                  background: 'linear-gradient(45deg, #00f5ff, #0066ff)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '0.7rem',
-                  fontWeight: '700',
-                  color: '#000'
-                }}
-              >
-                {member.userId.firstName[0]}
-              </div>
-              <small style={{ color: '#ccd6f6' }}>
-                {member.userId.firstName} {member.userId.lastName}
-                {member.role === 'Team Leader' && (
-                  <Badge bg="warning" className="ms-1" style={{ fontSize: '0.6rem', color: '#000' }}>
-                    LEADER
-                  </Badge>
-                )}
-              </small>
+      </div>
+      
+      <div className="card-body">
+        <p className="team-description">{team.description}</p>
+        
+        {team.requiredSkills && team.requiredSkills.length > 0 && (
+          <div className="skills-section">
+            <h6>Required Skills:</h6>
+            <div className="skills-list">
+              {team.requiredSkills.map((skill, index) => (
+                <span key={index} className={`skill-badge ${skill.priority}`}>
+                  {skill.skill} ({skill.level})
+                </span>
+              ))}
             </div>
-          ))}
-        </div>
-      </Card.Body>
-
-      <Card.Footer style={{
-        background: 'linear-gradient(90deg, #16213e 0%, #0f3460 100%)',
-        border: 'none',
-        borderRadius: '0 0 15px 15px'
-      }}>
-        <div className="d-flex gap-2">
-          <Button
-            size="sm"
-            onClick={() => {setSelectedTeam(team); setShowTeamModal(true);}}
-            style={{
-              background: 'linear-gradient(45deg, #00f5ff, #0066ff)',
-              border: 'none',
-              color: '#000',
-              fontWeight: '600',
-              textTransform: 'uppercase',
-              fontSize: '0.7rem'
+          </div>
+        )}
+        
+        {team.lookingFor && team.lookingFor.roles && team.lookingFor.roles.length > 0 && (
+          <div className="looking-for-section">
+            <h6>Looking for:</h6>
+            <div className="roles-list">
+              {team.lookingFor.roles.map((role, index) => (
+                <span key={index} className="role-badge">{role}</span>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        {team.tags && team.tags.length > 0 && (
+          <div className="tags-section">
+            {team.tags.map((tag, index) => (
+              <span key={index} className="tag-badge">#{tag}</span>
+            ))}
+          </div>
+        )}
+      </div>
+      
+      <div className="card-footer">
+        <div className="action-buttons">
+          <button 
+            className="btn btn-info btn-sm"
+            onClick={() => {
+              setSelectedTeam(team);
+              setShowTeamModal(true);
             }}
           >
             View Details
-          </Button>
-          {isMyTeam ? (
-            <Button
-              size="sm"
-              variant="outline-danger"
-              onClick={() => handleLeaveTeam(team._id)}
-              style={{
-                borderColor: '#ff6b6b',
-                color: '#ff6b6b',
-                fontWeight: '600',
-                textTransform: 'uppercase',
-                fontSize: '0.7rem'
-              }}
-            >
-              Leave Team
-            </Button>
-          ) : (
-            <Button
-              size="sm"
+          </button>
+          
+          {showJoinButton && team.isOpen && (
+            <button 
+              className="btn btn-primary btn-sm"
               onClick={() => handleJoinTeam(team._id)}
-              style={{
-                background: 'linear-gradient(45deg, #ffd700, #ff6b6b)',
-                border: 'none',
-                color: '#000',
-                fontWeight: '600',
-                textTransform: 'uppercase',
-                fontSize: '0.7rem'
-              }}
+              disabled={loading}
             >
               Join Team
-            </Button>
+            </button>
+          )}
+          
+          {showManageButton && (
+            <>
+              <button className="btn btn-warning btn-sm">Edit</button>
+              <button 
+                className="btn btn-danger btn-sm"
+                onClick={() => handleLeaveTeam(team._id)}
+                disabled={loading}
+              >
+                Leave
+              </button>
+            </>
           )}
         </div>
-      </Card.Footer>
-    </Card>
+      </div>
+    </div>
   );
 
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '60vh' }}>
-        <Spinner animation="border" style={{ color: '#00f5ff' }} />
-      </div>
-    );
-  }
-
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%)',
-      color: '#e0e6ed'
-    }}>
-      <Container fluid className="py-4">
-        {/* Header */}
-        <Row className="mb-4">
-          <Col>
-            <div className="text-center mb-4">
-              <h1 style={{
-                background: 'linear-gradient(45deg, #00f5ff, #ffd700, #ff6b6b)',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-                fontSize: '3rem',
-                fontWeight: '700',
-                textShadow: '0 0 20px rgba(0, 245, 255, 0.3)'
-              }}>
-                TEAM DASHBOARD
-              </h1>
-              <p style={{ color: '#8892b0', fontSize: '1.1rem' }}>
-                Command Center for Your Hackathon Teams
-              </p>
-            </div>
-          </Col>
-        </Row>
-
-        {/* Alert */}
-        {alert.show && (
-          <Row className="mb-3">
-            <Col>
-              <Alert variant={alert.type} className="text-center">
-                {alert.message}
-              </Alert>
-            </Col>
-          </Row>
-        )}
-
-        {/* Navigation Tabs */}
-        <Row className="mb-4">
-          <Col>
-            <Tabs
-              activeKey={activeTab}
-              onSelect={setActiveTab}
-              className="custom-tabs"
-              style={{
-                borderBottom: '2px solid #16213e'
-              }}
-            >
-              <Tab
-                eventKey="my-teams"
-                title={
-                  <span style={{
-                    color: activeTab === 'my-teams' ? '#00f5ff' : '#8892b0',
-                    fontWeight: '600',
-                    textTransform: 'uppercase'
-                  }}>
-                    My Teams ({teams.length})
-                  </span>
-                }
-              >
-                <div className="mt-4">
-                  <Row className="mb-3">
-                    <Col>
-                      <Button
-                        onClick={() => setShowCreateModal(true)}
-                        style={{
-                          background: 'linear-gradient(45deg, #ffd700, #ff6b6b)',
-                          border: 'none',
-                          color: '#000',
-                          fontWeight: '700',
-                          textTransform: 'uppercase',
-                          padding: '10px 30px',
-                          borderRadius: '25px',
-                          boxShadow: '0 4px 15px rgba(255, 215, 0, 0.3)'
-                        }}
-                      >
-                        + Create New Team
-                      </Button>
-                    </Col>
-                  </Row>
-
-                  {teams.length === 0 ? (
-                    <Card style={{
-                      background: 'linear-gradient(145deg, #0a0a0a 0%, #1a1a2e 100%)',
-                      border: '1px solid #16213e',
-                      borderRadius: '15px'
-                    }}>
-                      <Card.Body className="text-center py-5">
-                        <h4 style={{ color: '#64ffda' }}>No Teams Found</h4>
-                        <p style={{ color: '#8892b0' }}>Create your first team to get started!</p>
-                      </Card.Body>
-                    </Card>
-                  ) : (
-                    <Row>
-                      {teams.map(team => (
-                        <Col key={team._id} lg={6} xl={4} className="mb-4">
-                          <TeamCard team={team} />
-                        </Col>
-                      ))}
-                    </Row>
-                  )}
-                </div>
-              </Tab>
-
-              <Tab
-                eventKey="explore"
-                title={
-                  <span style={{
-                    color: activeTab === 'explore' ? '#00f5ff' : '#8892b0',
-                    fontWeight: '600',
-                    textTransform: 'uppercase'
-                  }}>
-                    Explore Teams
-                  </span>
-                }
-              >
-                <div className="mt-4">
-                  <Row>
-                    {mockTeams.map(team => (
-                      <Col key={team._id} lg={6} xl={4} className="mb-4">
-                        <TeamCard team={team} isMyTeam={false} />
-                      </Col>
-                    ))}
-                  </Row>
-                </div>
-              </Tab>
-            </Tabs>
-          </Col>
-        </Row>
-
-        {/* Create Team Modal */}
-        <Modal
-          show={showCreateModal}
-          onHide={() => setShowCreateModal(false)}
-          size="lg"
-          centered
-          style={{ color: '#000' }}
-        >
-          <Modal.Header 
-            closeButton
-            style={{
-              background: 'linear-gradient(90deg, #0f3460 0%, #16213e 100%)',
-              border: 'none',
-              color: '#00f5ff'
-            }}
-          >
-            <Modal.Title style={{ fontWeight: '700', textTransform: 'uppercase' }}>
-              Create New Team
-            </Modal.Title>
-          </Modal.Header>
-          <Modal.Body style={{ 
-            background: 'linear-gradient(145deg, #1a1a2e 0%, #0a0a0a 100%)',
-            color: '#e0e6ed'
-          }}>
-            <Form onSubmit={handleCreateTeam}>
-              <Form.Group className="mb-3">
-                <Form.Label style={{ color: '#64ffda', fontWeight: '600' }}>Team Name</Form.Label>
-                <Form.Control
-                  type="text"
-                  value={createForm.name}
-                  onChange={(e) => setCreateForm(prev => ({ ...prev, name: e.target.value }))}
-                  required
-                  style={{
-                    background: '#16213e',
-                    border: '1px solid #64ffda',
-                    color: '#e0e6ed',
-                    borderRadius: '8px'
-                  }}
-                />
-              </Form.Group>
-
-              <Form.Group className="mb-3">
-                <Form.Label style={{ color: '#64ffda', fontWeight: '600' }}>Description</Form.Label>
-                <Form.Control
-                  as="textarea"
-                  rows={3}
-                  value={createForm.description}
-                  onChange={(e) => setCreateForm(prev => ({ ...prev, description: e.target.value }))}
-                  style={{
-                    background: '#16213e',
-                    border: '1px solid #64ffda',
-                    color: '#e0e6ed',
-                    borderRadius: '8px'
-                  }}
-                />
-              </Form.Group>
-
-              <Row>
-                <Col md={6}>
-                  <Form.Group className="mb-3">
-                    <Form.Label style={{ color: '#64ffda', fontWeight: '600' }}>Max Members</Form.Label>
-                    <Form.Control
-                      type="number"
-                      min="2"
-                      max="10"
-                      value={createForm.maxMembers}
-                      onChange={(e) => setCreateForm(prev => ({ ...prev, maxMembers: parseInt(e.target.value) }))}
-                      style={{
-                        background: '#16213e',
-                        border: '1px solid #64ffda',
-                        color: '#e0e6ed',
-                        borderRadius: '8px'
-                      }}
-                    />
-                  </Form.Group>
-                </Col>
-                <Col md={6}>
-                  <Form.Group className="mb-3">
-                    <Form.Check
-                      type="checkbox"
-                      label="Public Team"
-                      checked={createForm.isPublic}
-                      onChange={(e) => setCreateForm(prev => ({ ...prev, isPublic: e.target.checked }))}
-                      style={{ color: '#e0e6ed', marginTop: '2rem' }}
-                    />
-                  </Form.Group>
-                </Col>
-              </Row>
-
-              <div className="d-flex gap-2 justify-content-end">
-                <Button
-                  variant="outline-secondary"
-                  onClick={() => setShowCreateModal(false)}
-                  style={{ borderColor: '#8892b0', color: '#8892b0' }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  style={{
-                    background: 'linear-gradient(45deg, #00f5ff, #0066ff)',
-                    border: 'none',
-                    color: '#000',
-                    fontWeight: '600'
-                  }}
-                >
-                  Create Team
-                </Button>
-              </div>
-            </Form>
-          </Modal.Body>
-        </Modal>
-
-        {/* Team Details Modal */}
-        <Modal
-          show={showTeamModal}
-          onHide={() => setShowTeamModal(false)}
-          size="lg"
-          centered
-        >
-          <Modal.Header 
-            closeButton
-            style={{
-              background: 'linear-gradient(90deg, #0f3460 0%, #16213e 100%)',
-              border: 'none',
-              color: '#00f5ff'
-            }}
-          >
-            <Modal.Title style={{ fontWeight: '700', textTransform: 'uppercase' }}>
-              {selectedTeam?.name}
-            </Modal.Title>
-          </Modal.Header>
-          <Modal.Body style={{ 
-            background: 'linear-gradient(145deg, #1a1a2e 0%, #0a0a0a 100%)',
-            color: '#e0e6ed'
-          }}>
-            {selectedTeam && (
-              <div>
-                <p style={{ color: '#8892b0' }}>{selectedTeam.description}</p>
-                
-                <div className="mb-3">
-                  <h6 style={{ color: '#64ffda' }}>Hackathon</h6>
-                  <p style={{ color: '#ccd6f6' }}>{selectedTeam.hackathonId.title}</p>
-                </div>
-
-                <div className="mb-3">
-                  <h6 style={{ color: '#64ffda' }}>Team Members</h6>
-                  <ListGroup variant="flush">
-                    {selectedTeam.members.filter(m => m.status === 'active').map((member, idx) => (
-                      <ListGroup.Item 
-                        key={idx}
-                        style={{ 
-                          background: 'transparent', 
-                          border: '1px solid #16213e',
-                          color: '#e0e6ed',
-                          marginBottom: '8px',
-                          borderRadius: '8px'
-                        }}
-                      >
-                        <div className="d-flex justify-content-between align-items-center">
-                          <span>{member.userId.firstName} {member.userId.lastName}</span>
-                          <Badge 
-                            bg={member.role === 'Team Leader' ? 'warning' : 'info'}
-                            style={{ color: '#000' }}
-                          >
-                            {member.role}
-                          </Badge>
-                        </div>
-                      </ListGroup.Item>
-                    ))}
-                  </ListGroup>
-                </div>
-
-                <div className="mb-3">
-                  <h6 style={{ color: '#64ffda' }}>Required Skills</h6>
-                  <div className="d-flex flex-wrap gap-2">
-                    {selectedTeam.requiredSkills.map((skill, idx) => (
-                      <Badge 
-                        key={idx}
-                        style={{
-                          background: 'linear-gradient(45deg, #ff6b6b, #ffd700)',
-                          color: '#000'
-                        }}
-                      >
-                        {skill}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-          </Modal.Body>
-        </Modal>
-      </Container>
-
-      <style>{`
+    <div className="team-dashboard">
+      <style jsx>{`
+        .team-dashboard {
+          background: linear-gradient(135deg, #0a0a0a 0%, #1a0033 50%, #000066 100%);
+          min-height: 100vh;
+          color: #00ffff;
+          font-family: 'Courier New', monospace;
+        }
+        
+        .dashboard-header {
+          background: rgba(0, 255, 255, 0.1);
+          border-bottom: 2px solid #00ffff;
+          padding: 20px;
+          box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+        }
+        
+        .cyber-title {
+          font-size: 2.5rem;
+          font-weight: bold;
+          text-shadow: 0 0 10px #00ffff;
+          color: #00ffff;
+          text-transform: uppercase;
+          letter-spacing: 2px;
+        }
+        
+        .nav-tabs {
+          border-bottom: 2px solid #ff00ff;
+          background: rgba(255, 0, 255, 0.1);
+        }
+        
+        .nav-tabs .nav-link {
+          color: #00ffff;
+          background: transparent;
+          border: 1px solid #ff00ff;
+          margin-right: 5px;
+          text-transform: uppercase;
+          font-weight: bold;
+          transition: all 0.3s ease;
+        }
+        
+        .nav-tabs .nav-link:hover {
+          background: rgba(255, 0, 255, 0.2);
+          color: #ff00ff;
+          box-shadow: 0 0 10px rgba(255, 0, 255, 0.5);
+        }
+        
+        .nav-tabs .nav-link.active {
+          background: #ff00ff;
+          color: #000;
+          border-color: #ff00ff;
+          box-shadow: 0 0 15px rgba(255, 0, 255, 0.7);
+        }
+        
+        .team-card {
+          background: linear-gradient(145deg, rgba(0, 255, 255, 0.1), rgba(255, 0, 255, 0.1));
+          border: 1px solid #00ffff;
+          border-radius: 10px;
+          margin-bottom: 20px;
+          box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
+          transition: all 0.3s ease;
+        }
+        
         .team-card:hover {
           transform: translateY(-5px);
+          box-shadow: 0 0 25px rgba(0, 255, 255, 0.5);
+          border-color: #ff00ff;
+        }
+        
+        .card-header {
+          background: rgba(255, 0, 255, 0.2);
+          border-bottom: 1px solid #ff00ff;
+          padding: 15px;
+        }
+        
+        .team-name {
+          color: #00ffff;
+          font-size: 1.3rem;
+          font-weight: bold;
+          text-shadow: 0 0 5px #00ffff;
+        }
+        
+        .status-badge {
+          padding: 3px 8px;
+          border-radius: 15px;
+          font-size: 0.8rem;
+          font-weight: bold;
+          text-transform: uppercase;
+          margin-right: 10px;
+        }
+        
+        .status-badge.forming { background: #ffff00; color: #000; }
+        .status-badge.complete { background: #00ff00; color: #000; }
+        .status-badge.competing { background: #ff8800; color: #000; }
+        .status-badge.submitted { background: #0088ff; color: #fff; }
+        
+        .visibility-badge {
+          padding: 3px 8px;
+          border-radius: 15px;
+          font-size: 0.8rem;
+          font-weight: bold;
+        }
+        
+        .visibility-badge.public { background: #00ff00; color: #000; }
+        .visibility-badge.private { background: #ff0000; color: #fff; }
+        
+        .team-size {
+          background: rgba(0, 255, 255, 0.2);
+          padding: 10px;
+          border-radius: 50%;
+          font-weight: bold;
+          color: #00ffff;
+          border: 2px solid #00ffff;
+        }
+        
+        .card-body {
+          padding: 15px;
+        }
+        
+        .team-description {
+          color: #cccccc;
+          margin-bottom: 15px;
+        }
+        
+        .skills-section, .looking-for-section, .tags-section {
+          margin-bottom: 15px;
+        }
+        
+        .skills-section h6, .looking-for-section h6 {
+          color: #ff00ff;
+          font-weight: bold;
+          margin-bottom: 8px;
+        }
+        
+        .skill-badge {
+          display: inline-block;
+          padding: 3px 8px;
+          margin: 2px;
+          border-radius: 12px;
+          font-size: 0.8rem;
+          font-weight: bold;
+        }
+        
+        .skill-badge.low { background: #666; color: #fff; }
+        .skill-badge.medium { background: #ffff00; color: #000; }
+        .skill-badge.high { background: #ff8800; color: #fff; }
+        .skill-badge.critical { background: #ff0000; color: #fff; }
+        
+        .role-badge {
+          display: inline-block;
+          background: rgba(0, 255, 255, 0.3);
+          color: #00ffff;
+          padding: 3px 8px;
+          margin: 2px;
+          border-radius: 12px;
+          font-size: 0.8rem;
+          border: 1px solid #00ffff;
+        }
+        
+        .tag-badge {
+          display: inline-block;
+          background: rgba(255, 0, 255, 0.3);
+          color: #ff00ff;
+          padding: 3px 8px;
+          margin: 2px;
+          border-radius: 12px;
+          font-size: 0.8rem;
+          border: 1px solid #ff00ff;
+        }
+        
+        .card-footer {
+          background: rgba(0, 0, 0, 0.3);
+          border-top: 1px solid #00ffff;
+          padding: 15px;
+        }
+        
+        .action-buttons {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+        
+        .btn {
+          border: 2px solid;
+          font-weight: bold;
+          text-transform: uppercase;
           transition: all 0.3s ease;
-          box-shadow: 0 12px 40px rgba(0, 245, 255, 0.2) !important;
         }
         
-        .custom-tabs .nav-link {
-          border: none !important;
-          background: transparent !important;
+        .btn-primary {
+          background: transparent;
+          border-color: #00ffff;
+          color: #00ffff;
         }
         
-        .custom-tabs .nav-link.active {
-          border-bottom: 2px solid #00f5ff !important;
-          background: transparent !important;
+        .btn-primary:hover {
+          background: #00ffff;
+          color: #000;
+          box-shadow: 0 0 15px rgba(0, 255, 255, 0.7);
+        }
+        
+        .btn-info {
+          background: transparent;
+          border-color: #0088ff;
+          color: #0088ff;
+        }
+        
+        .btn-info:hover {
+          background: #0088ff;
+          color: #fff;
+          box-shadow: 0 0 15px rgba(0, 136, 255, 0.7);
+        }
+        
+        .btn-warning {
+          background: transparent;
+          border-color: #ffff00;
+          color: #ffff00;
+        }
+        
+        .btn-warning:hover {
+          background: #ffff00;
+          color: #000;
+          box-shadow: 0 0 15px rgba(255, 255, 0, 0.7);
+        }
+        
+        .btn-danger {
+          background: transparent;
+          border-color: #ff0000;
+          color: #ff0000;
+        }
+        
+        .btn-danger:hover {
+          background: #ff0000;
+          color: #fff;
+          box-shadow: 0 0 15px rgba(255, 0, 0, 0.7);
+        }
+        
+        .btn-success {
+          background: transparent;
+          border-color: #00ff00;
+          color: #00ff00;
+        }
+        
+        .btn-success:hover {
+          background: #00ff00;
+          color: #000;
+          box-shadow: 0 0 15px rgba(0, 255, 0, 0.7);
+        }
+        
+        .modal-content {
+          background: linear-gradient(145deg, #1a0033, #000066);
+          border: 2px solid #00ffff;
+          box-shadow: 0 0 30px rgba(0, 255, 255, 0.5);
+        }
+        
+        .modal-header {
+          border-bottom: 2px solid #ff00ff;
+          background: rgba(255, 0, 255, 0.1);
+        }
+        
+        .modal-title {
+          color: #00ffff;
+          font-weight: bold;
+          text-transform: uppercase;
+        }
+        
+        .form-control, .form-select {
+          background: rgba(0, 0, 0, 0.5);
+          border: 1px solid #00ffff;
+          color: #00ffff;
+        }
+        
+        .form-control:focus, .form-select:focus {
+          background: rgba(0, 0, 0, 0.7);
+          border-color: #ff00ff;
+          color: #00ffff;
+          box-shadow: 0 0 10px rgba(255, 0, 255, 0.5);
+        }
+        
+        .form-label {
+          color: #ff00ff;
+          font-weight: bold;
+        }
+        
+        .search-bar {
+          background: rgba(0, 0, 0, 0.5);
+          border: 2px solid #00ffff;
+          border-radius: 25px;
+          padding: 10px 20px;
+          color: #00ffff;
+          margin-bottom: 20px;
+        }
+        
+        .search-bar:focus {
+          background: rgba(0, 0, 0, 0.7);
+          border-color: #ff00ff;
+          box-shadow: 0 0 15px rgba(255, 0, 255, 0.5);
+        }
+        
+        .create-team-btn {
+          position: fixed;
+          bottom: 30px;
+          right: 30px;
+          width: 60px;
+          height: 60px;
+          border-radius: 50%;
+          background: #ff00ff;
+          border: 2px solid #00ffff;
+          color: #000;
+          font-size: 24px;
+          font-weight: bold;
+          box-shadow: 0 0 20px rgba(255, 0, 255, 0.7);
+          transition: all 0.3s ease;
+          z-index: 1000;
+        }
+        
+        .create-team-btn:hover {
+          transform: scale(1.1);
+          box-shadow: 0 0 30px rgba(255, 0, 255, 1);
+        }
+        
+        .loading-spinner {
+          border: 4px solid rgba(0, 255, 255, 0.1);
+          border-left: 4px solid #00ffff;
+          border-radius: 50%;
+          width: 40px;
+          height: 40px;
+          animation: spin 1s linear infinite;
+          margin: 20px auto;
+        }
+        
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        
+        .error-alert {
+          background: rgba(255, 0, 0, 0.1);
+          border: 2px solid #ff0000;
+          color: #ff0000;
+          padding: 15px;
+          border-radius: 10px;
+          margin-bottom: 20px;
+        }
+        
+        .empty-state {
+          text-align: center;
+          padding: 50px;
+          color: #666;
+        }
+        
+        .empty-state h3 {
+          color: #00ffff;
+          margin-bottom: 20px;
+        }
+        
+        .skill-input-group {
+          display: flex;
+          gap: 10px;
+          margin-bottom: 10px;
+          align-items: end;
+        }
+        
+        .tag-item {
+          display: inline-block;
+          background: rgba(255, 0, 255, 0.3);
+          color: #ff00ff;
+          padding: 5px 10px;
+          margin: 3px;
+          border-radius: 15px;
+          border: 1px solid #ff00ff;
+        }
+        
+        .remove-btn {
+          background: transparent;
+          border: none;
+          color: #ff0000;
+          margin-left: 5px;
+          cursor: pointer;
         }
       `}</style>
+
+      {/* Header */}
+      <div className="dashboard-header">
+        <div className="container">
+          <h1 className="cyber-title">Team Matrix</h1>
+          <p className="lead">Connect • Collaborate • Conquer</p>
+        </div>
+      </div>
+
+      {/* Navigation Tabs */}
+      <div className="container mt-4">
+        <ul className="nav nav-tabs">
+          <li className="nav-item">
+            <button 
+              className={`nav-link ${activeTab === 'browse' ? 'active' : ''}`}
+              onClick={() => setActiveTab('browse')}
+            >
+              Browse Teams
+            </button>
+          </li>
+          <li className="nav-item">
+            <button 
+              className={`nav-link ${activeTab === 'my-teams' ? 'active' : ''}`}
+              onClick={() => setActiveTab('my-teams')}
+            >
+              My Teams
+            </button>
+          </li>
+        </ul>
+
+        {/* Error Alert */}
+        {error && (
+          <div className="error-alert">
+            <strong>Error:</strong> {error}
+            <button 
+              className="btn btn-sm btn-outline-danger float-end"
+              onClick={() => setError(null)}
+            >
+              ×
+            </button>
+          </div>
+        )}
+
+        {/* Tab Content */}
+        <div className="tab-content mt-4">
+          {/* Browse Teams Tab */}
+          {activeTab === 'browse' && (
+            <div className="tab-pane active">
+              <div className="row mb-4">
+                <div className="col-md-6">
+                  <input
+                    type="text"
+                    className="form-control search-bar"
+                    placeholder="Search teams..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+                <div className="col-md-6">
+                  <button 
+                    className="btn btn-primary"
+                    onClick={loadBrowseTeams}
+                    disabled={loading}
+                  >
+                    Refresh
+                  </button>
+                </div>
+              </div>
+
+              {loading && <div className="loading-spinner"></div>}
+
+              <div className="row">
+                {teams.length === 0 && !loading ? (
+                  <div className="empty-state">
+                    <h3>No Teams Found</h3>
+                    <p>Be the first to create a team!</p>
+                  </div>
+                ) : (
+                  teams
+                    .filter(team => 
+                      team.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      team.description?.toLowerCase().includes(searchQuery.toLowerCase())
+                    )
+                    .map(team => (
+                      <div key={team._id} className="col-md-6 col-lg-4">
+                        <TeamCard team={team} showJoinButton={true} />
+                      </div>
+                    ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* My Teams Tab */}
+          {activeTab === 'my-teams' && (
+            <div className="tab-pane active">
+              {loading && <div className="loading-spinner"></div>}
+
+              <div className="row">
+                {myTeams.length === 0 && !loading ? (
+                  <div className="empty-state">
+                    <h3>You Haven't Joined Any Teams Yet</h3>
+                    <p>Create or join a team to get started!</p>
+                    <button 
+                      className="btn btn-primary"
+                      onClick={() => setShowCreateModal(true)}
+                    >
+                      Create Your First Team
+                    </button>
+                  </div>
+                ) : (
+                  myTeams.map(team => (
+                    <div key={team._id} className="col-md-6 col-lg-4">
+                      <TeamCard team={team} showManageButton={true} />
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Floating Create Button */}
+      <button 
+        className="create-team-btn"
+        onClick={() => setShowCreateModal(true)}
+        title="Create New Team"
+      >
+        +
+      </button>
+
+      {/* Create Team Modal */}
+{showCreateModal && (
+  <div className="modal show d-block" tabIndex="-1">
+    <div className="modal-dialog modal-lg">
+      <div className="modal-content">
+        <div className="modal-header">
+          <h5 className="modal-title">Create New Team</h5>
+          <button 
+            type="button" 
+            className="btn-close" 
+            onClick={() => setShowCreateModal(false)}
+          ></button>
+        </div>
+        <form onSubmit={handleCreateTeam}>
+          <div className="modal-body">
+            {/* Hackathon Selection - NEW */}
+<div className="mb-3">
+  <label className="form-label">Select Hackathon *</label>
+  <select
+    className="form-select"
+    value={teamForm.hackathonId || ''}
+    onChange={(e) => {
+      console.log('Selected hackathon ID:', e.target.value);
+      setTeamForm(prev => ({...prev, hackathonId: e.target.value}));
+    }}
+    required
+    disabled={loading} // Disable while loading
+  >
+    <option value="">
+      {loading ? 'Loading hackathons...' : 'Choose a hackathon...'}
+    </option>
+    {hackathons && hackathons.length > 0 ? (
+      hackathons.map((hackathon) => {
+        // Handle different possible ID fields
+        const hackathonId = hackathon._id || hackathon.id;
+        const title = hackathon.title || hackathon.name || 'Untitled Hackathon';
+        const status = hackathon.status || 'unknown';
+        
+        return (
+          <option key={hackathonId} value={hackathonId}>
+            {title} - {status.toUpperCase()}
+            {hackathon.registrationDeadline && (
+              ` (Deadline: ${new Date(hackathon.registrationDeadline).toLocaleDateString()})`
+            )}
+          </option>
+        );
+      })
+    ) : (
+      !loading && (
+        <option value="" disabled>
+          No hackathons available
+        </option>
+      )
+    )}
+  </select>
+  
+  {/* Better error/empty state messaging */}
+  {!loading && hackathons.length === 0 && (
+    <small className="text-muted">
+      No hackathons available for team creation. Please try refreshing the page or contact support.
+    </small>
+  )}
+  
+  {loading && (
+    <small className="text-muted">
+      <i className="spinner-border spinner-border-sm me-2" role="status"></i>
+      Loading available hackathons...
+    </small>
+  )}
+  
+  {/* Debug info - remove in production */}
+  {import.meta.env.NODE_ENV === 'development' && (
+    <small className="text-muted">
+      Debug: {hackathons.length} hackathons loaded
+    </small>
+  )}
+</div>
+            {/* Basic Info */}
+            <div className="row mb-3">
+              <div className="col-md-8">
+                <label className="form-label">Team Name *</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  value={teamForm.name}
+                  onChange={(e) => setTeamForm(prev => ({...prev, name: e.target.value}))}
+                  required
+                />
+              </div>
+              <div className="col-md-4">
+                <label className="form-label">Max Members *</label>
+                <input
+                  type="number"
+                  className="form-control"
+                  min="2"
+                  max="10"
+                  value={teamForm.maxMembers}
+                  onChange={(e) => setTeamForm(prev => ({...prev, maxMembers: parseInt(e.target.value)}))}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="mb-3">
+              <label className="form-label">Description *</label>
+              <textarea
+                className="form-control"
+                rows="3"
+                value={teamForm.description}
+                onChange={(e) => setTeamForm(prev => ({...prev, description: e.target.value}))}
+                required
+              ></textarea>
+            </div>
+
+            {/* Project Details */}
+            <div className="mb-3">
+              <label className="form-label">Project Idea</label>
+              <textarea
+                className="form-control"
+                rows="3"
+                value={teamForm.projectDetails.idea}
+                onChange={(e) => setTeamForm(prev => ({
+                  ...prev, 
+                  projectDetails: {...prev.projectDetails, idea: e.target.value}
+                }))}
+              ></textarea>
+            </div>
+
+            {/* Technologies */}
+            <div className="mb-3">
+              <label className="form-label">Technologies</label>
+              <div className="skill-input-group">
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="Add technology"
+                  value={newTech}
+                  onChange={(e) => setNewTech(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addTechnology())}
+                />
+                <button 
+                  type="button" 
+                  className="btn btn-success"
+                  onClick={addTechnology}
+                >
+                  Add
+                </button>
+              </div>
+              <div className="mt-2">
+                {teamForm.projectDetails.technologies.map((tech, index) => (
+                  <span key={index} className="tag-item">
+                    {tech}
+                    <button 
+                      type="button" 
+                      className="remove-btn"
+                      onClick={() => removeTechnology(tech)}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Required Skills */}
+            <div className="mb-3">
+              <label className="form-label">Required Skills</label>
+              <div className="skill-input-group">
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="Skill name"
+                  value={newSkill.skill}
+                  onChange={(e) => setNewSkill(prev => ({...prev, skill: e.target.value}))}
+                />
+                <select
+                  className="form-select"
+                  value={newSkill.level}
+                  onChange={(e) => setNewSkill(prev => ({...prev, level: e.target.value}))}
+                >
+                  {skillLevels.map(level => (
+                    <option key={level} value={level}>{level}</option>
+                  ))}
+                </select>
+                <select
+                  className="form-select"
+                  value={newSkill.priority}
+                  onChange={(e) => setNewSkill(prev => ({...prev, priority: e.target.value}))}
+                >
+                  {priorities.map(priority => (
+                    <option key={priority} value={priority}>{priority}</option>
+                  ))}
+                </select>
+                <button 
+                  type="button" 
+                  className="btn btn-success"
+                  onClick={addSkill}
+                >
+                  Add
+                </button>
+              </div>
+              <div className="mt-2">
+                {teamForm.requiredSkills.map((skill, index) => (
+                  <span key={index} className={`skill-badge ${skill.priority}`}>
+                    {skill.skill} ({skill.level})
+                    <button 
+                      type="button" 
+                      className="remove-btn"
+                      onClick={() => removeSkill(index)}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Looking For */}
+            <div className="mb-3">
+              <label className="form-label">Looking For</label>
+              <div className="row">
+                <div className="col-md-6">
+                  <select
+                    className="form-select"
+                    multiple
+                    value={teamForm.lookingFor.roles}
+                    onChange={(e) => {
+                      const selectedRoles = Array.from(e.target.selectedOptions, option => option.value);
+                      setTeamForm(prev => ({
+                        ...prev,
+                        lookingFor: {...prev.lookingFor, roles: selectedRoles}
+                      }));
+                    }}
+                  >
+                    {roles.map(role => (
+                      <option key={role} value={role}>{role.replace('_', ' ')}</option>
+                    ))}
+                  </select>
+                  <small className="text-muted">Hold Ctrl/Cmd to select multiple</small>
+                </div>
+                <div className="col-md-3">
+                  <input
+                    type="number"
+                    className="form-control"
+                    placeholder="Count"
+                    min="1"
+                    value={teamForm.lookingFor.count}
+                    onChange={(e) => setTeamForm(prev => ({
+                      ...prev,
+                      lookingFor: {...prev.lookingFor, count: parseInt(e.target.value) || 1}
+                    }))}
+                  />
+                </div>
+                <div className="col-md-12 mt-2">
+                  <textarea
+                    className="form-control"
+                    placeholder="Description of what you're looking for"
+                    rows="2"
+                    value={teamForm.lookingFor.description}
+                    onChange={(e) => setTeamForm(prev => ({
+                      ...prev,
+                      lookingFor: {...prev.lookingFor, description: e.target.value}
+                    }))}
+                  ></textarea>
+                </div>
+              </div>
+            </div>
+
+            {/* Communication */}
+            <div className="mb-3">
+              <label className="form-label">Communication</label>
+              <div className="row">
+                <div className="col-md-4">
+                  <label className="form-label">Preferred Method</label>
+                  <select
+                    className="form-select"
+                    value={teamForm.communication.preferredMethod}
+                    onChange={(e) => setTeamForm(prev => ({
+                      ...prev,
+                      communication: {...prev.communication, preferredMethod: e.target.value}
+                    }))}
+                  >
+                    {commMethods.map(method => (
+                      <option key={method} value={method}>{method}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-md-4">
+                  <label className="form-label">Discord</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="Discord username"
+                    value={teamForm.communication.discord}
+                    onChange={(e) => setTeamForm(prev => ({
+                      ...prev,
+                      communication: {...prev.communication, discord: e.target.value}
+                    }))}
+                  />
+                </div>
+                <div className="col-md-4">
+                  <label className="form-label">Email</label>
+                  <input
+                    type="email"
+                    className="form-control"
+                    placeholder="Contact email"
+                    value={teamForm.communication.email}
+                    onChange={(e) => setTeamForm(prev => ({
+                      ...prev,
+                      communication: {...prev.communication, email: e.target.value}
+                    }))}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Preferences */}
+            <div className="mb-3">
+              <label className="form-label">Team Preferences</label>
+              <div className="row">
+                <div className="col-md-3">
+                  <label className="form-label">Working Style</label>
+                  <select
+                    className="form-select"
+                    value={teamForm.preferences.workingStyle}
+                    onChange={(e) => setTeamForm(prev => ({
+                      ...prev,
+                      preferences: {...prev.preferences, workingStyle: e.target.value}
+                    }))}
+                  >
+                    {workingStyles.map(style => (
+                      <option key={style} value={style}>{style}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-md-3">
+                  <label className="form-label">Meeting Frequency</label>
+                  <select
+                    className="form-select"
+                    value={teamForm.preferences.meetingFrequency}
+                    onChange={(e) => setTeamForm(prev => ({
+                      ...prev,
+                      preferences: {...prev.preferences, meetingFrequency: e.target.value}
+                    }))}
+                  >
+                    {meetingFreq.map(freq => (
+                      <option key={freq} value={freq}>{freq.replace('_', ' ')}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-md-3">
+                  <label className="form-label">Experience Level</label>
+                  <select
+                    className="form-select"
+                    value={teamForm.preferences.experienceLevel}
+                    onChange={(e) => setTeamForm(prev => ({
+                      ...prev,
+                      preferences: {...prev.preferences, experienceLevel: e.target.value}
+                    }))}
+                  >
+                    {expLevels.map(level => (
+                      <option key={level} value={level}>{level}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-md-3">
+                  <label className="form-label">Timezone</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="UTC"
+                    value={teamForm.preferences.timezone}
+                    onChange={(e) => setTeamForm(prev => ({
+                      ...prev,
+                      preferences: {...prev.preferences, timezone: e.target.value}
+                    }))}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Tags */}
+            <div className="mb-3">
+              <label className="form-label">Tags</label>
+              <div className="skill-input-group">
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="Add tag"
+                  value={newTag}
+                  onChange={(e) => setNewTag(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
+                />
+                <button 
+                  type="button" 
+                  className="btn btn-success"
+                  onClick={addTag}
+                >
+                  Add
+                </button>
+              </div>
+              <div className="mt-2">
+                {teamForm.tags.map((tag, index) => (
+                  <span key={index} className="tag-item">
+                    #{tag}
+                    <button 
+                      type="button" 
+                      className="remove-btn"
+                      onClick={() => removeTag(tag)}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Visibility */}
+            <div className="mb-3">
+              <div className="form-check">
+                <input
+                  className="form-check-input"
+                  type="checkbox"
+                  checked={teamForm.isPublic}
+                  onChange={(e) => setTeamForm(prev => ({...prev, isPublic: e.target.checked}))}
+                />
+                <label className="form-check-label">
+                  Make team public (visible to everyone)
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div className="modal-footer">
+            <button 
+              type="button" 
+              className="btn btn-secondary"
+              onClick={() => setShowCreateModal(false)}
+            >
+              Cancel
+            </button>
+            <button 
+              type="submit" 
+              className="btn btn-primary"
+              disabled={loading}
+            >
+              {loading ? 'Creating...' : 'Create Team'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+)}
+
+      {/* Team Details Modal */}
+      {showTeamModal && selectedTeam && (
+        <div className="modal show d-block" tabIndex="-1">
+          <div className="modal-dialog modal-lg">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">{selectedTeam.name}</h5>
+                <button 
+                  type="button" 
+                  className="btn-close" 
+                  onClick={() => setShowTeamModal(false)}
+                ></button>
+              </div>
+              <div className="modal-body">
+                <div className="row">
+                  <div className="col-md-8">
+                    <h6>Description</h6>
+                    <p>{selectedTeam.description}</p>
+
+                    {selectedTeam.projectDetails?.idea && (
+                      <>
+                        <h6>Project Idea</h6>
+                        <p>{selectedTeam.projectDetails.idea}</p>
+                      </>
+                    )}
+
+                    {selectedTeam.lookingFor?.description && (
+                      <>
+                        <h6>Looking For</h6>
+                        <p>{selectedTeam.lookingFor.description}</p>
+                      </>
+                    )}
+
+                    {selectedTeam.communication && (
+                      <>
+                        <h6>Communication</h6>
+                        <p>Preferred: {selectedTeam.communication.preferredMethod}</p>
+                        {selectedTeam.communication.discord && <p>Discord: {selectedTeam.communication.discord}</p>}
+                        {selectedTeam.communication.email && <p>Email: {selectedTeam.communication.email}</p>}
+                      </>
+                    )}
+                  </div>
+                  <div className="col-md-4">
+                    <h6>Team Info</h6>
+                    <p><strong>Size:</strong> {selectedTeam.currentSize || 1}/{selectedTeam.maxMembers}</p>
+                    <p><strong>Status:</strong> {selectedTeam.status}</p>
+                    <p><strong>Visibility:</strong> {selectedTeam.isPublic ? 'Public' : 'Private'}</p>
+                    
+                    {selectedTeam.preferences && (
+                      <>
+                        <h6>Preferences</h6>
+                        <p><strong>Working Style:</strong> {selectedTeam.preferences.workingStyle}</p>
+                        <p><strong>Meeting Frequency:</strong> {selectedTeam.preferences.meetingFrequency}</p>
+                        <p><strong>Experience Level:</strong> {selectedTeam.preferences.experienceLevel}</p>
+                        <p><strong>Timezone:</strong> {selectedTeam.preferences.timezone}</p>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {selectedTeam.projectDetails?.technologies && selectedTeam.projectDetails.technologies.length > 0 && (
+                  <div className="mt-3">
+                    <h6>Technologies</h6>
+                    <div>
+                      {selectedTeam.projectDetails.technologies.map((tech, index) => (
+                        <span key={index} className="tag-badge">{tech}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {selectedTeam.requiredSkills && selectedTeam.requiredSkills.length > 0 && (
+                  <div className="mt-3">
+                    <h6>Required Skills</h6>
+                    <div>
+                      {selectedTeam.requiredSkills.map((skill, index) => (
+                        <span key={index} className={`skill-badge ${skill.priority}`}>
+                          {skill.skill} ({skill.level})
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {selectedTeam.members && selectedTeam.members.length > 0 && (
+                  <div className="mt-3">
+                    <h6>Team Members</h6>
+                    {selectedTeam.members
+                      .filter(member => member.status === 'active')
+                      .map((member, index) => (
+                        <div key={index} className="mb-2">
+                          <strong>{member.role}</strong>
+                          {member.skills && member.skills.length > 0 && (
+                            <div>
+                              Skills: {member.skills.join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+              <div className="modal-footer">
+                {selectedTeam.isOpen && selectedTeam.isPublic && (
+                  <button 
+                    className="btn btn-primary"
+                    onClick={() => {
+                      handleJoinTeam(selectedTeam._id);
+                      setShowTeamModal(false);
+                    }}
+                    disabled={loading}
+                  >
+                    Join Team
+                  </button>
+                )}
+                <button 
+                  type="button" 
+                  className="btn btn-secondary"
+                  onClick={() => setShowTeamModal(false)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Backdrop */}
+      {(showCreateModal || showTeamModal) && (
+        <div 
+          className="modal-backdrop show"
+          onClick={() => {
+            setShowCreateModal(false);
+            setShowTeamModal(false);
+          }}
+        ></div>
+      )}
     </div>
   );
 };

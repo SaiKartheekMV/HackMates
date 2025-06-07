@@ -1,6 +1,7 @@
+/* eslint-disable no-unused-vars */
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { authAPI, userAPI } from '../services/api';
+import { authAPI, userAPI, profileAPI } from '../services/api';
 
 const AuthContext = createContext();
 
@@ -11,6 +12,8 @@ export const useAuth = () => {
   }
   return context;
 };
+
+
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -257,6 +260,26 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const updateProfile = async (profileData) => {
+  try {
+    const response = await profileAPI.setupProfile(profileData);
+    
+    // Optionally update user state with profile completion info
+    if (response.data.profile) {
+      setUser(prevUser => ({
+        ...prevUser,
+        profile: response.data.profile,
+        profileCompleted: response.data.profile.completionScore > 50 // or your threshold
+      }));
+    }
+    
+    return response.data;
+  } catch (error) {
+    console.error('Profile update error:', error);
+    throw error;
+  }
+};
+
   const updateUser = async (updatedData) => {
     try {
       setLoading(true);
@@ -459,7 +482,9 @@ export const AuthProvider = ({ children }) => {
     clearError,
     getUserFullName,
     getUserInitials,
-    isEmailVerified
+    isEmailVerified,
+    updateProfile
+
   };
 
   return (

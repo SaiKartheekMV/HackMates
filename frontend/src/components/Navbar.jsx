@@ -618,7 +618,7 @@ const AppNavbar = () => {
                 Squad_Hub
               </Link>
               <Link 
-                to="/profile-setup" 
+                to="/profile" 
                 className="mobile-nav-item"
                 onClick={() => setShowMobileMenu(false)}
               >
@@ -742,7 +742,7 @@ const AppNavbar = () => {
                   id="profile-dropdown"
                   align="end"
                 >
-                  <NavDropdown.Item as={Link} to="/profile-setup">
+                  <NavDropdown.Item as={Link} to="/profile">
                     <FaCog className="me-2" />
                     Config_Profile
                   </NavDropdown.Item>

@@ -14,12 +14,26 @@ const getMyProfile = async (req, res) => {
       profile = new Profile({
         userId,
         bio: '',
+        location: '',
+        yearsOfExperience: '',
         skills: [],
         experience: [],
         education: [],
+        additionalEducation: '',
+        degree: '',
+        university: '',
+        graduationYear: null,
+        hackathonExperience: '',
         projects: [],
-        socialLinks: {},
-        location: {},
+        socialLinks: {
+          github: '',
+          linkedin: '',
+          portfolio: ''
+        },
+        preferredRoles: [],
+        availability: '',
+        resumeUrl: '',
+        resumeData: null,
         completionScore: 0
       });
       await profile.save();
@@ -33,11 +47,43 @@ const getMyProfile = async (req, res) => {
   }
 };
 
-// Update current user's profile
+// Update current user's profile - Updated to handle form data
 const updateMyProfile = async (req, res) => {
   try {
     const userId = req.user._id;
-    const updateData = req.body;
+    const formData = req.body;
+
+    // Transform form data to match database structure
+    const updateData = {
+      // Basic Info
+      bio: formData.bio || '',
+      location: formData.location || '',
+      yearsOfExperience: formData.yearsOfExperience || '',
+      
+      // Skills
+      skills: formData.skills || [],
+      
+      // Education from form
+      degree: formData.degree || '',
+      university: formData.university || '',
+      graduationYear: formData.graduationYear ? parseInt(formData.graduationYear) : null,
+      additionalEducation: formData.education || '', // This maps to the textarea
+      hackathonExperience: formData.hackathonExperience || '',
+      
+      // Social Links
+      socialLinks: {
+        linkedin: formData.linkedinUrl || '',
+        github: formData.githubUrl || '',
+        portfolio: formData.portfolioUrl || ''
+      },
+      
+      // Preferences
+      preferredRoles: formData.preferredRoles || [],
+      availability: formData.availability || '',
+      
+      // Resume data
+      resumeData: formData.resumeData || null
+    };
 
     // Calculate completion score
     const completionScore = calculateCompletionScore(updateData);
@@ -74,17 +120,24 @@ const getPublicProfile = async (req, res) => {
       return res.status(404).json({ error: 'Profile not found' });
     }
 
-    // Remove sensitive information for public view
+    // Return public profile data
     const publicProfile = {
       _id: profile._id,
       userId: profile.userId,
       bio: profile.bio,
+      location: profile.location,
+      yearsOfExperience: profile.yearsOfExperience,
       skills: profile.skills,
+      degree: profile.degree,
+      university: profile.university,
+      graduationYear: profile.graduationYear,
+      hackathonExperience: profile.hackathonExperience,
       experience: profile.experience,
       education: profile.education,
       projects: profile.projects,
       socialLinks: profile.socialLinks,
-      location: profile.location,
+      preferredRoles: profile.preferredRoles,
+      availability: profile.availability,
       completionScore: profile.completionScore,
       createdAt: profile.createdAt
     };
@@ -152,7 +205,7 @@ const calculateCompletion = async (req, res) => {
   }
 };
 
-// Helper function to calculate completion score
+// Updated helper function to calculate completion score
 const calculateCompletionScore = (profileData) => {
   let score = 0;
   const maxScore = 100;
@@ -162,34 +215,54 @@ const calculateCompletionScore = (profileData) => {
     score += 10;
   }
 
+  // Location (5 points)
+  if (profileData.location && profileData.location.trim().length > 0) {
+    score += 5;
+  }
+
+  // Years of Experience (10 points)
+  if (profileData.yearsOfExperience && profileData.yearsOfExperience.trim().length > 0) {
+    score += 10;
+  }
+
   // Skills (20 points)
   if (profileData.skills && profileData.skills.length > 0) {
     score += Math.min(20, profileData.skills.length * 4); // 4 points per skill, max 20
   }
 
-  // Experience (25 points)
-  if (profileData.experience && profileData.experience.length > 0) {
-    score += Math.min(25, profileData.experience.length * 12); // 12 points per experience, max 25
+  // Education Info (15 points)
+  let educationScore = 0;
+  if (profileData.degree && profileData.degree.trim().length > 0) educationScore += 5;
+  if (profileData.university && profileData.university.trim().length > 0) educationScore += 5;
+  if (profileData.graduationYear) educationScore += 5;
+  score += educationScore;
+
+  // Additional Education (5 points)
+  if (profileData.additionalEducation && profileData.additionalEducation.trim().length > 0) {
+    score += 5;
   }
 
-  // Education (15 points)
-  if (profileData.education && profileData.education.length > 0) {
-    score += Math.min(15, profileData.education.length * 8); // 8 points per education, max 15
+  // Hackathon Experience (10 points)
+  if (profileData.hackathonExperience && profileData.hackathonExperience !== 'none') {
+    score += 10;
   }
 
-  // Projects (20 points)
-  if (profileData.projects && profileData.projects.length > 0) {
-    score += Math.min(20, profileData.projects.length * 10); // 10 points per project, max 20
-  }
-
-  // Social Links (5 points)
+  // Social Links (10 points)
   if (profileData.socialLinks) {
-    const socialCount = Object.values(profileData.socialLinks).filter(link => link && link.trim().length > 0).length;
-    score += Math.min(5, socialCount * 2); // 2 points per social link, max 5
+    let socialScore = 0;
+    if (profileData.socialLinks.linkedin && profileData.socialLinks.linkedin.trim().length > 0) socialScore += 4;
+    if (profileData.socialLinks.github && profileData.socialLinks.github.trim().length > 0) socialScore += 4;
+    if (profileData.socialLinks.portfolio && profileData.socialLinks.portfolio.trim().length > 0) socialScore += 2;
+    score += socialScore;
   }
 
-  // Location (5 points)
-  if (profileData.location && (profileData.location.city || profileData.location.country)) {
+  // Preferred Roles (10 points)
+  if (profileData.preferredRoles && profileData.preferredRoles.length > 0) {
+    score += Math.min(10, profileData.preferredRoles.length * 3); // 3 points per role, max 10
+  }
+
+  // Availability (5 points)
+  if (profileData.availability && profileData.availability.trim().length > 0) {
     score += 5;
   }
 
@@ -199,7 +272,7 @@ const calculateCompletionScore = (profileData) => {
 // Search profiles (for matching)
 const searchProfiles = async (req, res) => {
   try {
-    const { skills, location, page = 1, limit = 10 } = req.query;
+    const { skills, location, roles, page = 1, limit = 10 } = req.query;
     const userId = req.user._id;
 
     const query = { userId: { $ne: userId } }; // Exclude current user
@@ -210,10 +283,12 @@ const searchProfiles = async (req, res) => {
     }
 
     if (location) {
-      query.$or = [
-        { 'location.city': new RegExp(location, 'i') },
-        { 'location.country': new RegExp(location, 'i') }
-      ];
+      query.location = new RegExp(location, 'i');
+    }
+
+    if (roles) {
+      const rolesArray = roles.split(',').map(role => role.trim());
+      query.preferredRoles = { $in: rolesArray };
     }
 
     const profiles = await Profile.find(query)

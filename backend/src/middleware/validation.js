@@ -13,6 +13,19 @@ const handleValidationErrors = (req, res, next) => {
   next();
 };
 
+const validateObjectId = (req, res, next) => {
+  const { id } = req.params;
+  
+  if (id && !id.match(/^[0-9a-fA-F]{24}$/)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid hackathon ID format'
+    });
+  }
+  
+  next();
+};
+
 // User update validation
 const validateUserUpdate = [
   body('firstName')
@@ -544,4 +557,5 @@ module.exports = {
   validateHackathonUpdate,
   validateHackathon, // Add this export
   handleValidationErrors,
+  validateObjectId
 };

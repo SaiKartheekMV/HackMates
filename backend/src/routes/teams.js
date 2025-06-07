@@ -59,6 +59,9 @@ const validateObjectId = (req, res, next) => {
 // Protected routes - require authentication
 router.use(authenticateToken);
 
+router.get('/my', teamController.getMyTeams);
+router.post('/', validateTeamCreation, teamController.createTeam);
+
 // Team routes
 router.get('/:id', validateObjectId, teamController.getTeamById);
 router.put('/:id', validateObjectId, validateTeamUpdate, teamController.updateTeam);

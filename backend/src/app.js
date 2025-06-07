@@ -220,6 +220,8 @@ app.use("/api/profiles", profileRoutes);
 
 console.log("Setting up /api/hackathons...");
 app.use("/api/hackathons", hackathonRoutes);
+// In your main server file (app.js or server.js)
+app.use('/api/hackathons', require('./routes/hackathons'));
 
 console.log("Setting up /api/matchmaking...");
 app.use("/api/matchmaking", matchmakingRoutes);

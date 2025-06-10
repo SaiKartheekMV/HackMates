@@ -66,37 +66,27 @@ const [teamForm, setTeamForm] = useState({
     loadBrowseTeams();
   }, []);
 
-  useEffect(() => {
+ useEffect(() => {
   if (showCreateModal) {
-    fetchHackathonsForDropdown();
+    fetchHackathons();
   }
 }, [showCreateModal]);
 
-const fetchHackathonsForDropdown = async () => {
+const fetchHackathons = async () => {
   try {
-    console.log('Fetching hackathons for dropdown...');
+    setLoading(true);
+    const response = await hackathonAPI.getHackathons();
+    console.log('Full API response:', response);
+    console.log('Hackathons data:', response.data);
     
-    // Fetch only active/open hackathons for team creation
-    const params = {
-      status: 'upcoming,ongoing', // Only fetch hackathons that are open for registration
-      sortBy: 'registrationDeadline',
-      limit: 50 // Limit to avoid too many options
-    };
-    
-    const response = await hackathonAPI.getHackathons(params);
-    console.log('Hackathons fetched for dropdown:', response);
-    
-    // Make sure we have the hackathons data
-    const hackathonData = response.data || [];
-    console.log('Setting hackathons for dropdown:', hackathonData);
-    
-    // You might want to use a separate state for dropdown hackathons
-    // or reuse the existing hackathons state
-    setHackathons(Array.isArray(hackathonData) ? hackathonData : []);
-    
+    // Set the hackathons from the correct path in the response
+    setHackathons(response.data || []);
   } catch (error) {
-    console.error('Error fetching hackathons for dropdown:', error);
-    // Handle error - maybe show a toast notification
+    console.error('Error fetching hackathons:', error);
+    setHackathons([]);
+    // Optionally show an error message to the user
+  } finally {
+    setLoading(false);
   }
 };
 
@@ -947,23 +937,27 @@ const handleCreateTeam = async (e) => {
       setTeamForm(prev => ({...prev, hackathonId: e.target.value}));
     }}
     required
-    disabled={loading} // Disable while loading
+    disabled={loading}
   >
     <option value="">
       {loading ? 'Loading hackathons...' : 'Choose a hackathon...'}
     </option>
     {hackathons && hackathons.length > 0 ? (
       hackathons.map((hackathon) => {
-        // Handle different possible ID fields
+        // Handle different possible ID and name fields based on API response
         const hackathonId = hackathon._id || hackathon.id;
-        const title = hackathon.title || hackathon.name || 'Untitled Hackathon';
-        const status = hackathon.status || 'unknown';
+        const hackathonName = hackathon.name || hackathon.title || hackathon.hackathonName || 'Untitled Hackathon';
+        const status = hackathon.status || 'active';
         
         return (
           <option key={hackathonId} value={hackathonId}>
-            {title} - {status.toUpperCase()}
+            {hackathonName}
+            {status && ` - ${status.toUpperCase()}`}
             {hackathon.registrationDeadline && (
               ` (Deadline: ${new Date(hackathon.registrationDeadline).toLocaleDateString()})`
+            )}
+            {hackathon.endDate && (
+              ` (Ends: ${new Date(hackathon.endDate).toLocaleDateString()})`
             )}
           </option>
         );
@@ -978,7 +972,7 @@ const handleCreateTeam = async (e) => {
   </select>
   
   {/* Better error/empty state messaging */}
-  {!loading && hackathons.length === 0 && (
+  {!loading && (!hackathons || hackathons.length === 0) && (
     <small className="text-muted">
       No hackathons available for team creation. Please try refreshing the page or contact support.
     </small>
@@ -992,9 +986,12 @@ const handleCreateTeam = async (e) => {
   )}
   
   {/* Debug info - remove in production */}
-  {import.meta.env.NODE_ENV === 'development' && (
+  {import.meta.env.NODE_ENV === 'development' && hackathons && (
     <small className="text-muted">
       Debug: {hackathons.length} hackathons loaded
+      {hackathons.length > 0 && (
+        <> - First hackathon: {JSON.stringify(hackathons[0], null, 2)}</>
+      )}
     </small>
   )}
 </div>

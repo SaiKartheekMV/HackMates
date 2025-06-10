@@ -8,11 +8,19 @@ const HackRequest = require('../models/HackRequest');
 const getMyTeams = async (req, res) => {
   try {
     const userId = req.user._id;
+    console.log('Getting teams for user:', userId); // Add this for debugging
 
     const teams = await Team.find({
       $or: [
         { leaderId: userId },
-        { 'members.userId': userId, 'members.status': 'active' }
+        { 
+          members: {
+            $elemMatch: {
+              userId: userId,
+              status: 'active'
+            }
+          }
+        }
       ]
     })
     .populate('hackathonId', 'title startDate endDate status')
@@ -20,12 +28,15 @@ const getMyTeams = async (req, res) => {
     .populate('members.userId', 'firstName lastName profilePicture')
     .sort({ createdAt: -1 });
 
+    console.log('Found teams:', teams.length); // Add this for debugging
+
     res.json({
       success: true,
       teams: teams
     });
   } catch (error) {
     console.error('Get my teams error:', error);
+    console.error('Error details:', error.message); // Add more detailed error logging
     res.status(500).json({
       success: false,
       message: 'Server error'
@@ -78,7 +89,7 @@ const createTeam = async (req, res) => {
       leaderId: userId,
       members: [{
         userId,
-        role: 'Team Leader',
+        role: 'leader',
         joinedAt: new Date(),
         status: 'active'
       }],

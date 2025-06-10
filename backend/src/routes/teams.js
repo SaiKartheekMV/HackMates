@@ -56,21 +56,49 @@ const validateObjectId = (req, res, next) => {
   next();
 };
 
+// Error handling middleware for async routes
+const asyncHandler = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
+
 // Protected routes - require authentication
 router.use(authenticateToken);
 
-router.get('/my', teamController.getMyTeams);
-router.post('/', validateTeamCreation, teamController.createTeam);
+// Team routes with error handling
+router.get('/my', asyncHandler(teamController.getMyTeams));
+router.post('/', validateTeamCreation, asyncHandler(teamController.createTeam));
 
-// Team routes
-router.get('/:id', validateObjectId, teamController.getTeamById);
-router.put('/:id', validateObjectId, validateTeamUpdate, teamController.updateTeam);
-router.delete('/:id', validateObjectId, teamController.deleteTeam);
-router.post('/:id/join', validateObjectId, teamController.joinTeam);
-router.post('/:id/leave', validateObjectId, teamController.leaveTeam);
-router.delete('/:id/member/:memberId', validateObjectId, teamController.removeMember);
+router.get('/:id', validateObjectId, asyncHandler(teamController.getTeamById));
+router.put('/:id', validateObjectId, validateTeamUpdate, asyncHandler(teamController.updateTeam));
+router.delete('/:id', validateObjectId, asyncHandler(teamController.deleteTeam));
+router.post('/:id/join', validateObjectId, asyncHandler(teamController.joinTeam));
+router.post('/:id/leave', validateObjectId, asyncHandler(teamController.leaveTeam));
+router.delete('/:id/member/:memberId', validateObjectId, asyncHandler(teamController.removeMember));
 
-// Better approach: Use consistent parameter naming and different route structure
-router.delete('/:id/member/:memberId', teamController.removeMember);
+// Error handling middleware
+router.use((error, req, res, next) => {
+  console.error('Team routes error:', error);
+  
+  if (error.name === 'ValidationError') {
+    return res.status(400).json({
+      success: false,
+      message: 'Validation error',
+      details: error.message
+    });
+  }
+  
+  if (error.name === 'CastError') {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid ID format'
+    });
+  }
+  
+  res.status(500).json({
+    success: false,
+    message: 'Internal server error',
+    ...(process.env.NODE_ENV === 'development' && { details: error.message })
+  });
+});
 
 module.exports = router;

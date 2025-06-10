@@ -392,6 +392,9 @@ hackathonSchema.virtual('duration').get(function() {
 });
 
 hackathonSchema.virtual('totalPrizePool').get(function() {
+  if (!this.prizes || !Array.isArray(this.prizes)) {
+    return 0;
+  }
   return this.prizes.reduce((total, prize) => {
     if (prize.currency === 'USD') {
       return total + (prize.amount || 0);
@@ -399,7 +402,6 @@ hackathonSchema.virtual('totalPrizePool').get(function() {
     return total;
   }, 0);
 });
-
 // Pre-save middleware
 hackathonSchema.pre('save', function(next) {
   // Validate dates

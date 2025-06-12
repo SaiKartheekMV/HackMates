@@ -114,22 +114,6 @@ export const matchmakingAPI = {
 
 // Team API calls
 export const teamAPI = {
-  // Get user's teams - matches GET /teams/my/teams
-  getMyTeams: async () => {
-    try {
-      const response = await api.get('/teams/my/teams');
-      return {
-        success: true,
-        data: response.data.teams || response.data.data?.teams || response.data
-      };
-    } catch (error) {
-      console.error('API Error (getMyTeams):', error);
-      console.error('Error response:', error.response?.data);
-      console.error('Error status:', error.response?.status);
-      throw error;
-    }
-  },
-
   // Create a new team - matches POST /teams
   createTeam: async (teamData) => {
     try {
@@ -143,18 +127,33 @@ export const teamAPI = {
       console.error('API Error (createTeam):', error);
       console.error('Error response:', error.response?.data);
       console.error('Error status:', error.response?.status);
-      console.error('Request data that failed:', teamData);
       throw error;
     }
   },
 
-  // Get team by ID - matches GET /teams/:identifier
-  getTeamById: async (id) => {
+  // Get current user's teams - matches GET /teams/my
+  getMyTeams: async (params = {}) => {
     try {
-      if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
+      const response = await api.get('/teams/my', { params });
+      return {
+        success: true,
+        data: response.data.teams || response.data.data?.teams || response.data
+      };
+    } catch (error) {
+      console.error('API Error (getMyTeams):', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      throw error;
+    }
+  },
+
+  // Get team by ID - matches GET /teams/:teamId
+  getTeamById: async (teamId, params = {}) => {
+    try {
+      if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
         throw new Error('Invalid team ID format');
       }
-      const response = await api.get(`/teams/${id}`);
+      const response = await api.get(`/teams/${teamId}`, { params });
       return {
         success: true,
         data: response.data.team || response.data.data?.team || response.data
@@ -167,14 +166,14 @@ export const teamAPI = {
     }
   },
 
-  // Update team - matches PUT /teams/:id
-  updateTeam: async (id, teamData) => {
+  // Update team - matches PUT /teams/:teamId
+  updateTeam: async (teamId, teamData) => {
     try {
-      if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
+      if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
         throw new Error('Invalid team ID format');
       }
       console.log('Updating team with data:', teamData);
-      const response = await api.put(`/teams/${id}`, teamData);
+      const response = await api.put(`/teams/${teamId}`, teamData);
       return {
         success: true,
         data: response.data.team || response.data.data?.team || response.data
@@ -187,13 +186,13 @@ export const teamAPI = {
     }
   },
 
-  // Delete team - matches DELETE /teams/:id
-  deleteTeam: async (id) => {
+  // Delete/disband team - matches DELETE /teams/:teamId
+  deleteTeam: async (teamId) => {
     try {
-      if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
+      if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
         throw new Error('Invalid team ID format');
       }
-      const response = await api.delete(`/teams/${id}`);
+      const response = await api.delete(`/teams/${teamId}`);
       return {
         success: true,
         data: response.data
@@ -206,13 +205,13 @@ export const teamAPI = {
     }
   },
 
-  // Join team - matches POST /teams/:id/join
-  joinTeam: async (id) => {
+  // Join team - matches POST /teams/:teamId/join
+  joinTeam: async (teamId, joinData = {}) => {
     try {
-      if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
+      if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
         throw new Error('Invalid team ID format');
       }
-      const response = await api.post(`/teams/${id}/join`);
+      const response = await api.post(`/teams/${teamId}/join`, joinData);
       return {
         success: true,
         data: response.data
@@ -225,13 +224,13 @@ export const teamAPI = {
     }
   },
 
-  // Leave team - matches POST /teams/:id/leave
-  leaveTeam: async (id) => {
+  // Leave team - matches POST /teams/:teamId/leave
+  leaveTeam: async (teamId, leaveData = {}) => {
     try {
-      if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
+      if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
         throw new Error('Invalid team ID format');
       }
-      const response = await api.post(`/teams/${id}/leave`);
+      const response = await api.post(`/teams/${teamId}/leave`, leaveData);
       return {
         success: true,
         data: response.data
@@ -244,16 +243,35 @@ export const teamAPI = {
     }
   },
 
-  // Remove team member - matches DELETE /teams/:id/members/:memberId
-  removeMember: async (teamId, memberId) => {
+  // Invite user to team - matches POST /teams/:teamId/invite
+  inviteToTeam: async (teamId, inviteData) => {
     try {
       if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
         throw new Error('Invalid team ID format');
       }
-      if (!memberId || !memberId.match(/^[0-9a-fA-F]{24}$/)) {
-        throw new Error('Invalid member ID format');
+      const response = await api.post(`/teams/${teamId}/invite`, inviteData);
+      return {
+        success: true,
+        data: response.data
+      };
+    } catch (error) {
+      console.error('API Error (inviteToTeam):', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      throw error;
+    }
+  },
+
+  // Remove/kick team member - matches DELETE /teams/:teamId/members/:userId
+  removeMember: async (teamId, userId, kickData = {}) => {
+    try {
+      if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
+        throw new Error('Invalid team ID format');
       }
-      const response = await api.delete(`/teams/${teamId}/members/${memberId}`);
+      if (!userId || !userId.match(/^[0-9a-fA-F]{24}$/)) {
+        throw new Error('Invalid user ID format');
+      }
+      const response = await api.delete(`/teams/${teamId}/members/${userId}`, { data: kickData });
       return {
         success: true,
         data: response.data
@@ -266,316 +284,117 @@ export const teamAPI = {
     }
   },
 
-  // Additional API methods based on your backend routes:
-
-  // Get all teams with optional filters - matches GET /teams
-  getTeams: async (params = {}) => {
-    try {
-      const response = await api.get('/teams', { params });
-      return {
-        success: true,
-        data: response.data.teams || response.data.data?.teams || response.data
-      };
-    } catch (error) {
-      console.error('API Error (getTeams):', error);
-      throw error;
-    }
-  },
-
-  // Search teams - matches GET /teams/search
-  searchTeams: async (query, filters = {}) => {
-    try {
-      const params = { q: query, ...filters };
-      const response = await api.get('/teams/search', { params });
-      return {
-        success: true,
-        data: response.data.teams || response.data.data?.teams || response.data
-      };
-    } catch (error) {
-      console.error('API Error (searchTeams):', error);
-      throw error;
-    }
-  },
-
-  // Get featured teams - matches GET /teams/featured
-  getFeaturedTeams: async () => {
-    try {
-      const response = await api.get('/teams/featured');
-      return {
-        success: true,
-        data: response.data.teams || response.data.data?.teams || response.data
-      };
-    } catch (error) {
-      console.error('API Error (getFeaturedTeams):', error);
-      throw error;
-    }
-  },
-
-  // Get trending teams - matches GET /teams/trending
-  getTrendingTeams: async () => {
-    try {
-      const response = await api.get('/teams/trending');
-      return {
-        success: true,
-        data: response.data.teams || response.data.data?.teams || response.data
-      };
-    } catch (error) {
-      console.error('API Error (getTrendingTeams):', error);
-      throw error;
-    }
-  },
-
-  // Get recommendations - matches GET /teams/my/recommendations
-  getRecommendations: async () => {
-    try {
-      const response = await api.get('/teams/my/recommendations');
-      return {
-        success: true,
-        data: response.data.teams || response.data.data?.teams || response.data
-      };
-    } catch (error) {
-      console.error('API Error (getRecommendations):', error);
-      throw error;
-    }
-  },
-
-  // Update member role - matches PUT /teams/:id/members/:memberId/role
-  updateMemberRole: async (teamId, memberId, roleData) => {
+  // Transfer team leadership - matches POST /teams/:teamId/transfer-leadership
+  transferLeadership: async (teamId, transferData) => {
     try {
       if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
         throw new Error('Invalid team ID format');
       }
-      if (!memberId || !memberId.match(/^[0-9a-fA-F]{24}$/)) {
-        throw new Error('Invalid member ID format');
-      }
-      const response = await api.put(`/teams/${teamId}/members/${memberId}/role`, roleData);
-      return {
-        success: true,
-        data: response.data
-      };
-    } catch (error) {
-      console.error('API Error (updateMemberRole):', error);
-      throw error;
-    }
-  },
-
-  // Transfer leadership - matches POST /teams/:id/transfer-leadership
-  transferLeadership: async (id, memberData) => {
-    try {
-      if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
-        throw new Error('Invalid team ID format');
-      }
-      const response = await api.post(`/teams/${id}/transfer-leadership`, memberData);
+      const response = await api.post(`/teams/${teamId}/transfer-leadership`, transferData);
       return {
         success: true,
         data: response.data
       };
     } catch (error) {
       console.error('API Error (transferLeadership):', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
       throw error;
     }
   },
 
-  // Add co-leader - matches POST /teams/:id/co-leaders
-  addCoLeader: async (id, memberData) => {
-    try {
-      if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
-        throw new Error('Invalid team ID format');
-      }
-      const response = await api.post(`/teams/${id}/co-leaders`, memberData);
-      return {
-        success: true,
-        data: response.data
-      };
-    } catch (error) {
-      console.error('API Error (addCoLeader):', error);
-      throw error;
-    }
-  },
-
-  // Get applications - matches GET /teams/:id/applications
-  getApplications: async (id) => {
-    try {
-      if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
-        throw new Error('Invalid team ID format');
-      }
-      const response = await api.get(`/teams/${id}/applications`);
-      return {
-        success: true,
-        data: response.data.applications || response.data.data?.applications || response.data
-      };
-    } catch (error) {
-      console.error('API Error (getApplications):', error);
-      throw error;
-    }
-  },
-
-  // Review application - matches PUT /teams/:id/applications/:applicationId
-  reviewApplication: async (teamId, applicationId, reviewData) => {
+  // Update member permissions - matches PUT /teams/:teamId/members/:userId/permissions
+  updateMemberPermissions: async (teamId, userId, permissionsData) => {
     try {
       if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
         throw new Error('Invalid team ID format');
       }
-      if (!applicationId || !applicationId.match(/^[0-9a-fA-F]{24}$/)) {
-        throw new Error('Invalid application ID format');
+      if (!userId || !userId.match(/^[0-9a-fA-F]{24}$/)) {
+        throw new Error('Invalid user ID format');
       }
-      const response = await api.put(`/teams/${teamId}/applications/${applicationId}`, reviewData);
+      const response = await api.put(`/teams/${teamId}/members/${userId}/permissions`, permissionsData);
       return {
         success: true,
         data: response.data
       };
     } catch (error) {
-      console.error('API Error (reviewApplication):', error);
+      console.error('API Error (updateMemberPermissions):', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
       throw error;
     }
   },
 
-  // Generate invite link - matches POST /teams/:id/invite-links
-  generateInviteLink: async (id, inviteData) => {
+  // Get teams for a specific hackathon - matches GET /teams/hackathon/:hackathonId
+  getHackathonTeams: async (hackathonId, params = {}) => {
     try {
-      if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
+      if (!hackathonId || !hackathonId.match(/^[0-9a-fA-F]{24}$/)) {
+        throw new Error('Invalid hackathon ID format');
+      }
+      const response = await api.get(`/teams/hackathon/${hackathonId}`, { params });
+      return {
+        success: true,
+        data: response.data.teams || response.data.data?.teams || response.data
+      };
+    } catch (error) {
+      console.error('API Error (getHackathonTeams):', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      throw error;
+    }
+  },
+
+  // Get team recommendations - matches GET /teams/recommendations/:hackathonId
+  getTeamRecommendations: async (hackathonId, params = {}) => {
+    try {
+      if (!hackathonId || !hackathonId.match(/^[0-9a-fA-F]{24}$/)) {
+        throw new Error('Invalid hackathon ID format');
+      }
+      const response = await api.get(`/teams/recommendations/${hackathonId}`, { params });
+      return {
+        success: true,
+        data: response.data.teams || response.data.data?.teams || response.data
+      };
+    } catch (error) {
+      console.error('API Error (getTeamRecommendations):', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      throw error;
+    }
+  },
+
+  // Get team statistics - matches GET /teams/:teamId/stats
+  getTeamStats: async (teamId) => {
+    try {
+      if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
         throw new Error('Invalid team ID format');
       }
-      const response = await api.post(`/teams/${id}/invite-links`, inviteData);
+      const response = await api.get(`/teams/${teamId}/stats`);
       return {
         success: true,
-        data: response.data
+        data: response.data.stats || response.data.data?.stats || response.data
       };
     } catch (error) {
-      console.error('API Error (generateInviteLink):', error);
+      console.error('API Error (getTeamStats):', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
       throw error;
     }
   },
 
-  // Join via invite - matches POST /teams/join/:code
-  joinViaInvite: async (code) => {
+  
+  searchTeams: async (hackathonId, searchParams = {}) => {
     try {
-      const response = await api.post(`/teams/join/${code}`);
-      return {
-        success: true,
-        data: response.data
-      };
-    } catch (error) {
-      console.error('API Error (joinViaInvite):', error);
-      throw error;
-    }
-  },
-
-  // Update project - matches PUT /teams/:id/project
-  updateProject: async (id, projectData) => {
-    try {
-      if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
-        throw new Error('Invalid team ID format');
+      if (!hackathonId || !hackathonId.match(/^[0-9a-fA-F]{24}$/)) {
+        throw new Error('Invalid hackathon ID format');
       }
-      const response = await api.put(`/teams/${id}/project`, projectData);
+      const response = await api.get(`/teams/hackathon/${hackathonId}`, { params: searchParams });
       return {
         success: true,
-        data: response.data
+        data: response.data.teams || response.data.data?.teams || response.data
       };
     } catch (error) {
-      console.error('API Error (updateProject):', error);
-      throw error;
-    }
-  },
-
-  // Submit project - matches POST /teams/:id/submit
-  submitProject: async (id, submissionData) => {
-    try {
-      if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
-        throw new Error('Invalid team ID format');
-      }
-      const response = await api.post(`/teams/${id}/submit`, submissionData);
-      return {
-        success: true,
-        data: response.data
-      };
-    } catch (error) {
-      console.error('API Error (submitProject):', error);
-      throw error;
-    }
-  },
-
-  // Toggle like - matches POST /teams/:id/toggle-like
-  toggleLike: async (id) => {
-    try {
-      if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
-        throw new Error('Invalid team ID format');
-      }
-      const response = await api.post(`/teams/${id}/toggle-like`);
-      return {
-        success: true,
-        data: response.data
-      };
-    } catch (error) {
-      console.error('API Error (toggleLike):', error);
-      throw error;
-    }
-  },
-
-  // Toggle follow - matches POST /teams/:id/toggle-follow
-  toggleFollow: async (id) => {
-    try {
-      if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
-        throw new Error('Invalid team ID format');
-      }
-      const response = await api.post(`/teams/${id}/toggle-follow`);
-      return {
-        success: true,
-        data: response.data
-      };
-    } catch (error) {
-      console.error('API Error (toggleFollow):', error);
-      throw error;
-    }
-  },
-
-  // Add review - matches POST /teams/:id/reviews
-  addReview: async (id, reviewData) => {
-    try {
-      if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
-        throw new Error('Invalid team ID format');
-      }
-      const response = await api.post(`/teams/${id}/reviews`, reviewData);
-      return {
-        success: true,
-        data: response.data
-      };
-    } catch (error) {
-      console.error('API Error (addReview):', error);
-      throw error;
-    }
-  },
-
-  // Get team analytics - matches GET /teams/:id/analytics
-  getTeamAnalytics: async (id) => {
-    try {
-      if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
-        throw new Error('Invalid team ID format');
-      }
-      const response = await api.get(`/teams/${id}/analytics`);
-      return {
-        success: true,
-        data: response.data.analytics || response.data.data?.analytics || response.data
-      };
-    } catch (error) {
-      console.error('API Error (getTeamAnalytics):', error);
-      throw error;
-    }
-  },
-
-  // Update settings - matches PUT /teams/:id/settings
-  updateSettings: async (id, settingsData) => {
-    try {
-      if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
-        throw new Error('Invalid team ID format');
-      }
-      const response = await api.put(`/teams/${id}/settings`, settingsData);
-      return {
-        success: true,
-        data: response.data
-      };
-    } catch (error) {
-      console.error('API Error (updateSettings):', error);
+      console.error('API Error (searchTeams):', error);
       throw error;
     }
   }

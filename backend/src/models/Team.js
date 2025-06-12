@@ -1,1403 +1,431 @@
 const mongoose = require('mongoose');
-const crypto = require('crypto');
+
+const teamMemberSchema = new mongoose.Schema({
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  role: {
+    type: String,
+    enum: ['leader', 'developer', 'designer', 'data_scientist', 'product_manager', 'marketing', 'other'],
+    default: 'developer'
+  },
+  joinedAt: {
+    type: Date,
+    default: Date.now
+  },
+  status: {
+    type: String,
+    enum: ['active', 'left', 'kicked'],
+    default: 'active'
+  },
+  permissions: {
+    canInvite: {
+      type: Boolean,
+      default: false
+    },
+    canKick: {
+      type: Boolean,
+      default: false
+    },
+    canEditTeam: {
+      type: Boolean,
+      default: false
+    }
+  },
+  contribution: {
+    type: String,
+    maxlength: 500
+  }
+});
 
 const teamSchema = new mongoose.Schema({
-  // Basic Information
   name: {
     type: String,
     required: [true, 'Team name is required'],
     trim: true,
     maxlength: [100, 'Team name cannot exceed 100 characters'],
-    minlength: [3, 'Team name must be at least 3 characters'],
-    unique: true
+    minlength: [3, 'Team name must be at least 3 characters']
   },
-  
-  slug: {
-    type: String,
-    unique: true,
-    lowercase: true,
-    trim: true
-  },
-  
   description: {
     type: String,
     required: [true, 'Team description is required'],
-    trim: true,
     maxlength: [1000, 'Description cannot exceed 1000 characters']
   },
-  
-  motto: {
+  tagline: {
     type: String,
-    trim: true,
-    maxlength: [200, 'Team motto cannot exceed 200 characters']
+    maxlength: [200, 'Tagline cannot exceed 200 characters']
   },
-  
-  logo: {
-    url: String,
-    publicId: String // For Cloudinary or similar services
-  },
-  
-  coverImage: {
-    url: String,
-    publicId: String
-  },
-  
-  // Hackathon Association
   hackathonId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Hackathon',
-    required: [true, 'Hackathon ID is required'],
-    index: true
+    required: [true, 'Hackathon ID is required']
   },
-  
-  // Leadership
   leaderId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: [true, 'Team leader is required'],
-    index: true
+    required: [true, 'Team leader is required']
   },
-  
-  coLeaders: [{
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
-    },
-    assignedAt: {
-      type: Date,
-      default: Date.now
-    },
-    permissions: [{
-      type: String,
-      enum: ['manage_members', 'edit_project', 'manage_communications', 'submit_project', 'view_analytics']
-    }]
-  }],
-  
-  // Team Members
-  members: [{
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true
-    },
-    role: {
-      type: String,
-      enum: ['leader', 'co_leader', 'frontend_dev', 'backend_dev', 'fullstack_dev', 'mobile_dev', 'ui_designer', 'ux_designer', 'data_scientist', 'ml_engineer', 'devops', 'qa_tester', 'pm', 'product_owner', 'business_analyst', 'marketer', 'content_creator', 'researcher', 'mentor', 'other'],
-      default: 'other'
-    },
-    skills: [{
-      name: String,
-      level: {
-        type: String,
-        enum: ['beginner', 'intermediate', 'advanced', 'expert'],
-        default: 'intermediate'
-      },
-      verified: {
-        type: Boolean,
-        default: false
-      }
-    }],
-    specialization: String,
-    joinedAt: {
-      type: Date,
-      default: Date.now
-    },
-    status: {
-      type: String,
-      enum: ['active', 'inactive', 'left', 'removed', 'banned'],
-      default: 'active'
-    },
-    contribution: {
-      description: {
-        type: String,
-        maxlength: [500, 'Contribution description cannot exceed 500 characters']
-      },
-      hours: {
-        type: Number,
-        default: 0,
-        min: 0
-      },
-      commits: {
-        type: Number,
-        default: 0,
-        min: 0
-      },
-      tasksCompleted: {
-        type: Number,
-        default: 0,
-        min: 0
-      }
-    },
-    availability: {
-      hoursPerWeek: {
-        type: Number,
-        min: 1,
-        max: 168
-      },
-      timezone: String,
-      schedule: [{
-        day: {
-          type: String,
-          enum: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-        },
-        startTime: String, // Format: "HH:MM"
-        endTime: String
-      }]
-    },
-    performance: {
-      rating: {
-        type: Number,
-        min: 1,
-        max: 5,
-        default: 3
-      },
-      feedback: [String],
-      warnings: [{
-        reason: String,
-        date: {
-          type: Date,
-          default: Date.now
-        },
-        issuedBy: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'User'
-        }
-      }]
-    }
-  }],
-  
-  // Team Requirements & Recruitment
+  members: [teamMemberSchema],
   requiredSkills: [{
     skill: {
       type: String,
-      required: true,
-      trim: true
-    },
-    level: {
-      type: String,
-      enum: ['beginner', 'intermediate', 'advanced', 'expert'],
-      default: 'intermediate'
+      required: true
     },
     priority: {
       type: String,
       enum: ['low', 'medium', 'high', 'critical'],
       default: 'medium'
     },
-    count: {
-      type: Number,
-      default: 1,
-      min: 1
-    },
     fulfilled: {
-      type: Number,
-      default: 0,
-      min: 0
+      type: Boolean,
+      default: false
     }
   }],
-  
-  lookingFor: {
-    roles: [{
-      role: {
-        type: String,
-        enum: ['frontend_dev', 'backend_dev', 'fullstack_dev', 'mobile_dev', 'ui_designer', 'ux_designer', 'data_scientist', 'ml_engineer', 'devops', 'qa_tester', 'pm', 'product_owner', 'business_analyst', 'marketer', 'content_creator', 'researcher', 'other']
-      },
-      count: {
-        type: Number,
-        min: 1,
-        default: 1
-      },
-      description: String,
-      requirements: [String],
-      urgency: {
-        type: String,
-        enum: ['low', 'medium', 'high', 'urgent'],
-        default: 'medium'
-      }
-    }],
-    description: String,
-    applicationDeadline: Date
-  },
-  
-  // Team Configuration
-  maxMembers: {
-    type: Number,
-    required: [true, 'Maximum members count is required'],
-    min: [2, 'Team must have at least 2 members'],
-    max: [15, 'Team cannot exceed 15 members']
-  },
-  
-  currentSize: {
-    type: Number,
-    default: 1
-  },
-  
-  minMembers: {
-    type: Number,
-    default: 2,
-    min: 2
-  },
-  
-  // Team Settings
-  visibility: {
-    type: String,
-    enum: ['public', 'private', 'invite_only'],
-    default: 'public'
-  },
-  
-  joinMethod: {
-    type: String,
-    enum: ['open', 'application', 'invite_only'],
-    default: 'open'
-  },
-  
-  isOpen: {
-    type: Boolean,
-    default: true
-  },
-  
-  autoAccept: {
-    type: Boolean,
-    default: false
-  },
-  
-  requiresApproval: {
-    type: Boolean,
-    default: true
-  },
-  
-  // Team Status
-  status: {
-    type: String,
-    enum: ['forming', 'recruiting', 'complete', 'developing', 'testing', 'submitted', 'judging', 'finished', 'disbanded', 'disqualified'],
-    default: 'forming'
-  },
-  
-  phase: {
-    type: String,
-    enum: ['planning', 'development', 'testing', 'deployment', 'presentation', 'completed'],
-    default: 'planning'
-  },
-  
-  // Project Information
-  projectDetails: {
-    idea: {
+  preferredRoles: [{
+    role: {
       type: String,
-      maxlength: [3000, 'Project idea cannot exceed 3000 characters']
+      enum: ['developer', 'designer', 'data_scientist', 'product_manager', 'marketing', 'other'],
+      required: true
     },
-    problem: {
-      type: String,
-      maxlength: [1500, 'Problem statement cannot exceed 1500 characters']
+    count: {
+      type: Number,
+      min: 1,
+      default: 1
     },
-    solution: {
-      type: String,
-      maxlength: [2000, 'Solution description cannot exceed 2000 characters']
-    },
-    targetAudience: String,
-    uniqueValue: String,
-    technologies: [{
-      name: String,
-      category: {
-        type: String,
-        enum: ['frontend', 'backend', 'database', 'mobile', 'ai_ml', 'blockchain', 'cloud', 'devops', 'design', 'other']
-      },
-      version: String
-    }],
-    techStack: {
-      frontend: [String],
-      backend: [String],
-      database: [String],
-      mobile: [String],
-      cloud: [String],
-      other: [String]
-    },
-    repositories: [{
-      name: String,
-      url: String,
-      type: {
-        type: String,
-        enum: ['main', 'frontend', 'backend', 'mobile', 'documentation', 'other'],
-        default: 'main'
-      },
-      isPrivate: {
-        type: Boolean,
-        default: false
-      }
-    }],
-    liveUrl: String,
-    demoUrl: String,
-    documentationUrl: String,
-    pitch: {
-      videoUrl: String,
-      presentationUrl: String,
-      description: String
-    },
-    features: [String],
-    roadmap: [{
-      phase: String,
-      description: String,
-      deadline: Date,
-      status: {
-        type: String,
-        enum: ['planned', 'in_progress', 'completed', 'delayed', 'cancelled'],
-        default: 'planned'
-      }
-    }],
-    challenges: [String],
-    learnings: [String]
-  },
-  
-  // Communication & Collaboration
-  communication: {
-    discord: {
-      serverId: String,
-      channelId: String,
-      inviteUrl: String
-    },
-    slack: {
-      workspaceUrl: String,
-      channelName: String
-    },
-    whatsapp: String,
-    telegram: String,
-    email: String,
-    teams: String,
-    zoom: String,
-    meet: String,
-    preferredMethod: {
-      type: String,
-      enum: ['discord', 'slack', 'whatsapp', 'telegram', 'email', 'teams', 'zoom', 'meet'],
-      default: 'discord'
-    },
-    meetingSchedule: [{
-      type: {
-        type: String,
-        enum: ['standup', 'planning', 'review', 'retrospective', 'demo', 'other']
-      },
-      frequency: {
-        type: String,
-        enum: ['daily', 'weekly', 'biweekly', 'monthly', 'as_needed']
-      },
-      day: String,
-      time: String,
-      duration: Number, // in minutes
-      timezone: String
-    }]
-  },
-  
-  // Team Preferences & Culture
-  preferences: {
-    timezone: {
-      type: String,
-      default: 'UTC'
-    },
-    workingStyle: {
-      type: String,
-      enum: ['collaborative', 'independent', 'hybrid', 'pair_programming', 'mob_programming'],
-      default: 'collaborative'
-    },
-    meetingFrequency: {
-      type: String,
-      enum: ['daily', 'every_other_day', 'weekly', 'biweekly', 'as_needed'],
-      default: 'as_needed'
-    },
-    communicationStyle: {
-      type: String,
-      enum: ['formal', 'casual', 'mixed'],
-      default: 'casual'
-    },
-    decisionMaking: {
-      type: String,
-      enum: ['leader_decides', 'democratic', 'consensus', 'expertise_based'],
-      default: 'democratic'
-    },
-    experienceLevel: {
-      type: String,
-      enum: ['beginner', 'intermediate', 'advanced', 'mixed'],
-      default: 'mixed'
-    },
-    codeReview: {
-      required: {
-        type: Boolean,
-        default: true
-      },
-      minReviewers: {
-        type: Number,
-        default: 1,
-        min: 1
-      }
-    },
-    methodology: {
-      type: String,
-      enum: ['agile', 'scrum', 'kanban', 'waterfall', 'lean', 'custom'],
-      default: 'agile'
+    filled: {
+      type: Number,
+      default: 0
     }
-  },
-  
-  // Invitations & Access Control
-  inviteCode: {
-    type: String,
-    unique: true,
-    sparse: true
-  },
-  
-  inviteLinks: [{
-    code: String,
-    createdBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
-    },
-    expiresAt: Date,
-    maxUses: {
+  }],
+  teamSize: {
+    current: {
       type: Number,
       default: 1
     },
-    currentUses: {
+    max: {
+      type: Number,
+      required: true,
+      min: [2, 'Team must allow at least 2 members'],
+      max: [10, 'Team cannot exceed 10 members']
+    }
+  },
+  project: {
+    name: {
+      type: String,
+      maxlength: 150
+    },
+    description: {
+      type: String,
+      maxlength: 2000
+    },
+    category: {
+      type: String,
+      enum: ['web', 'mobile', 'ai_ml', 'blockchain', 'iot', 'ar_vr', 'gaming', 'fintech', 'healthtech', 'edtech', 'other']
+    },
+    technologies: [String],
+    repositoryUrl: {
+      type: String,
+      validate: {
+        validator: function(v) {
+          return !v || /^https?:\/\/(github\.com|gitlab\.com|bitbucket\.org)/.test(v);
+        },
+        message: 'Repository URL must be from GitHub, GitLab, or Bitbucket'
+      }
+    },
+    demoUrl: String,
+    figmaUrl: String,
+    presentationUrl: String,
+    status: {
+      type: String,
+      enum: ['planning', 'development', 'testing', 'completed'],
+      default: 'planning'
+    }
+  },
+  communication: {
+    primaryChannel: {
+      type: String,
+      enum: ['discord', 'slack', 'telegram', 'whatsapp', 'teams', 'other'],
+      default: 'discord'
+    },
+    channelLink: String,
+    meetingSchedule: String,
+    timezone: String
+  },
+  settings: {
+    isPublic: {
+      type: Boolean,
+      default: true
+    },
+    allowDirectJoin: {
+      type: Boolean,
+      default: false
+    },
+    requireApproval: {
+      type: Boolean,
+      default: true
+    },
+    autoAcceptSkills: [String], // Auto-accept if user has these skills
+    visibility: {
+      type: String,
+      enum: ['public', 'hackathon_only', 'private'],
+      default: 'public'
+    }
+  },
+  stats: {
+    totalApplications: {
       type: Number,
       default: 0
     },
-    isActive: {
-      type: Boolean,
-      default: true
-    }
-  }],
-  
-  // Applications & Requests
-  applications: [{
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
+    viewCount: {
+      type: Number,
+      default: 0
     },
-    role: String,
-    message: String,
-    skills: [String],
-    portfolio: String,
-    appliedAt: {
+    lastActivity: {
       type: Date,
       default: Date.now
     },
-    status: {
+    completionScore: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: 0
+    }
+  },
+  status: {
+    type: String,
+    enum: ['forming', 'complete', 'competing', 'finished', 'disbanded'],
+    default: 'forming'
+  },
+  tags: [String],
+  location: {
+    preference: {
       type: String,
-      enum: ['pending', 'accepted', 'rejected', 'withdrawn'],
-      default: 'pending'
+      enum: ['remote', 'hybrid', 'in_person'],
+      default: 'remote'
     },
-    reviewedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
-    },
-    reviewedAt: Date,
-    feedback: String
-  }],
-  
-  // Achievements & Recognition
+    city: String,
+    country: String,
+    timezone: String
+  },
   achievements: [{
     type: {
       type: String,
-      enum: ['winner', 'runner_up', 'finalist', 'special_mention', 'best_innovation', 'best_design', 'best_technical', 'peoples_choice', 'completed', 'outstanding_teamwork'],
-      required: true
+      enum: ['winner', 'runner_up', 'special_mention', 'best_design', 'best_tech', 'peoples_choice']
     },
-    title: String,
-    description: String,
-    hackathon: String,
+    hackathonId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Hackathon'
+    },
     date: {
       type: Date,
       default: Date.now
     },
-    prize: String,
-    certificate: String
-  }],
-  
-  awards: [{
-    name: String,
-    category: String,
-    rank: Number,
-    prize: String,
-    awardedBy: String,
-    date: Date
-  }],
-  
-  // Analytics & Statistics
-  statistics: {
-    profileViews: {
-      type: Number,
-      default: 0
-    },
-    joinRequests: {
-      type: Number,
-      default: 0
-    },
-    applicationsReceived: {
-      type: Number,
-      default: 0
-    },
-    applicationsAccepted: {
-      type: Number,
-      default: 0
-    },
-    totalCommits: {
-      type: Number,
-      default: 0
-    },
-    linesOfCode: {
-      type: Number,
-      default: 0
-    },
-    meetingsHeld: {
-      type: Number,
-      default: 0
-    },
-    tasksCompleted: {
-      type: Number,
-      default: 0
-    },
-    averageRating: {
-      type: Number,
-      default: 0,
-      min: 0,
-      max: 5
-    }
-  },
-  
-  // Social & Discovery
-  tags: [{
-    type: String,
-    trim: true,
-    lowercase: true
-  }],
-  
-  categories: [{
-    type: String,
-    enum: ['web', 'mobile', 'ai_ml', 'blockchain', 'iot', 'fintech', 'healthtech', 'edtech', 'social_impact', 'gaming', 'ar_vr', 'sustainability', 'security', 'other']
-  }],
-  
-  difficulty: {
-    type: String,
-    enum: ['beginner', 'intermediate', 'advanced', 'expert'],
-    default: 'intermediate'
-  },
-  
-  featured: {
-    type: Boolean,
-    default: false
-  },
-  
-  trending: {
-    type: Boolean,
-    default: false
-  },
-  
-  // Activity Tracking
-  lastActivity: {
-    type: Date,
-    default: Date.now
-  },
-  
-  activityLog: [{
-    action: String,
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
-    },
-    timestamp: {
-      type: Date,
-      default: Date.now
-    },
-    details: mongoose.Schema.Types.Mixed
-  }],
-  
-  // Reviews & Feedback
-  reviews: [{
-    reviewerId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
-    },
-    rating: {
-      type: Number,
-      min: 1,
-      max: 5
-    },
-    comment: String,
-    categories: {
-      teamwork: Number,
-      communication: Number,
-      technical: Number,
-      leadership: Number,
-      innovation: Number
-    },
-    date: {
-      type: Date,
-      default: Date.now
-    }
-  }],
-  
-  // Integrations
-  integrations: {
-    github: {
-      connected: {
-        type: Boolean,
-        default: false
-      },
-      orgName: String,
-      repoNames: [String],
-      webhookUrl: String
-    },
-    jira: {
-      connected: {
-        type: Boolean,
-        default: false
-      },
-      projectKey: String,
-      apiUrl: String
-    },
-    figma: {
-      connected: {
-        type: Boolean,
-        default: false
-      },
-      fileId: String,
-      projectUrl: String
-    },
-    notion: {
-      connected: {
-        type: Boolean,
-        default: false
-      },
-      workspaceId: String,
-      pageUrl: String
-    }
-  },
-  
-  // Team Health & Metrics
-  health: {
-    score: {
-      type: Number,
-      default: 100,
-      min: 0,
-      max: 100
-    },
-    lastCalculated: {
-      type: Date,
-      default: Date.now
-    },
-    factors: {
-      activity: Number,
-      collaboration: Number,
-      progress: Number,
-      communication: Number
-    }
-  },
-  
-  // Notifications & Alerts
-  notifications: {
-    newMember: {
-      type: Boolean,
-      default: true
-    },
-    memberLeft: {
-      type: Boolean,
-      default: true
-    },
-    newApplication: {
-      type: Boolean,
-      default: true
-    },
-    deadlineReminder: {
-      type: Boolean,
-      default: true
-    },
-    activitySummary: {
-      type: Boolean,
-      default: false
-    }
-  },
-  
-  // Backup & Recovery
-  backup: {
-    lastBackup: Date,
-    backupUrl: String,
-    autoBackup: {
-      type: Boolean,
-      default: false
-    }
-  }
-  
+    description: String
+  }]
 }, {
   timestamps: true,
-  toJSON: { 
-    virtuals: true,
-    transform: function(doc, ret) {
-      delete ret.__v;
-      return ret;
-    }
-  },
+  toJSON: { virtuals: true },
   toObject: { virtuals: true }
 });
 
-// Indexes for Performance
+// Indexes for better performance
 teamSchema.index({ hackathonId: 1, status: 1 });
 teamSchema.index({ leaderId: 1 });
 teamSchema.index({ 'members.userId': 1 });
-teamSchema.index({ 'requiredSkills.skill': 1 });
-teamSchema.index({ visibility: 1, isOpen: 1 });
+teamSchema.index({ requiredSkills: 1 });
 teamSchema.index({ tags: 1 });
-teamSchema.index({ categories: 1 });
-teamSchema.index({ featured: -1, trending: -1, createdAt: -1 });
-teamSchema.index({ 'statistics.profileViews': -1 });
-teamSchema.index({ slug: 1 });
-teamSchema.index({ inviteCode: 1 });
-teamSchema.index({ lastActivity: -1 });
+teamSchema.index({ createdAt: -1 });
+teamSchema.index({ 'stats.lastActivity': -1 });
 
-// Compound Indexes
-teamSchema.index({ hackathonId: 1, visibility: 1, status: 1 });
-teamSchema.index({ hackathonId: 1, categories: 1, difficulty: 1 });
-teamSchema.index({ 'requiredSkills.skill': 1, 'requiredSkills.priority': -1 });
-
-// Text Search Index
-teamSchema.index({
-  name: 'text',
-  description: 'text',
-  motto: 'text',
-  'requiredSkills.skill': 'text',
-  'projectDetails.idea': 'text',
-  'projectDetails.problem': 'text',
-  'projectDetails.solution': 'text',
-  tags: 'text'
-}, {
-  weights: {
-    name: 10,
-    description: 5,
-    'projectDetails.idea': 3,
-    tags: 2
-  }
+// Virtual for checking if team is full
+teamSchema.virtual('isFull').get(function() {
+  return this.teamSize.current >= this.teamSize.max;
 });
 
-// Virtual Fields
-teamSchema.virtual('isComplete').get(function() {
-  return this.currentSize >= this.maxMembers;
+// Virtual for available spots
+teamSchema.virtual('availableSpots').get(function() {
+  return this.teamSize.max - this.teamSize.current;
 });
 
-teamSchema.virtual('spotsRemaining').get(function() {
-  return Math.max(0, this.maxMembers - this.currentSize);
+// Virtual for team completion percentage
+teamSchema.virtual('profileCompletion').get(function() {
+  let score = 0;
+  if (this.name) score += 15;
+  if (this.description) score += 15;
+  if (this.requiredSkills.length > 0) score += 15;
+  if (this.project.name) score += 10;
+  if (this.project.description) score += 10;
+  if (this.project.technologies.length > 0) score += 10;
+  if (this.communication.channelLink) score += 10;
+  if (this.tags.length > 0) score += 5;
+  if (this.project.repositoryUrl) score += 10;
+  return Math.min(score, 100);
 });
 
-teamSchema.virtual('activeMembers').get(function() {
-  return this.members.filter(member => member.status === 'active');
-});
-
-teamSchema.virtual('completionPercentage').get(function() {
-  return Math.round((this.currentSize / this.maxMembers) * 100);
-});
-
-teamSchema.virtual('avgMemberRating').get(function() {
-  const activeMembers = this.members.filter(m => m.status === 'active');
-  if (activeMembers.length === 0) return 0;
-  const totalRating = activeMembers.reduce((sum, m) => sum + (m.performance.rating || 0), 0);
-  return Math.round((totalRating / activeMembers.length) * 10) / 10;
-});
-
-teamSchema.virtual('skillsAvailable').get(function() {
-  const skills = new Set();
-  this.members.forEach(member => {
-    if (member.status === 'active') {
-      member.skills.forEach(skill => skills.add(skill.name));
-    }
-  });
-  return Array.from(skills);
-});
-
-teamSchema.virtual('url').get(function() {
-  return `/teams/${this.slug || this._id}`;
-});
-
-// Population virtuals
-teamSchema.virtual('leaderInfo', {
-  ref: 'User',
-  localField: 'leaderId',
-  foreignField: '_id',
-  justOne: true
-});
-
-teamSchema.virtual('hackathonInfo', {
-  ref: 'Hackathon',
-  localField: 'hackathonId',
-  foreignField: '_id',
-  justOne: true
-});
-
-// Pre-save Middleware
-teamSchema.pre('save', async function(next) {
-  try {
-    // Generate slug from name if not exists
-    if (!this.slug && this.name) {
-      this.slug = this.name
-        .toLowerCase()
-        .replace(/[^\w\s-]/g, '')
-        .replace(/\s+/g, '-')
-        .substring(0, 50);
-      
-      // Ensure slug uniqueness
-      let counter = 1;
-      let originalSlug = this.slug;
-      while (await this.constructor.findOne({ slug: this.slug, _id: { $ne: this._id } })) {
-        this.slug = `${originalSlug}-${counter}`;
-        counter++;
-      }
-    }
-    
-    // Update current size based on active members
-    this.currentSize = this.members.filter(member => member.status === 'active').length;
-    
-    // Update team status based on current size and phase
-    if (this.currentSize >= this.maxMembers && this.status === 'forming') {
-      this.status = 'complete';
-      this.isOpen = false;
-    } else if (this.status === 'complete' && this.currentSize < this.maxMembers) {
-      this.status = 'recruiting';
-      this.isOpen = true;
-    }
-    
-    // Generate invite code if needed
-    if (this.visibility === 'public' && this.isOpen && !this.inviteCode) {
-      this.inviteCode = this.generateInviteCode();
-    }
-    
-    // Update fulfilled requirements
-    this.requiredSkills.forEach(req => {
-      const membersWithSkill = this.members.filter(member => 
-        member.status === 'active' && 
-        member.skills.some(skill => 
-          skill.name.toLowerCase() === req.skill.toLowerCase()
-        )
-      ).length;
-      req.fulfilled = Math.min(membersWithSkill, req.count);
-    });
-    
-    // Calculate team health score
-    this.calculateHealthScore();
-    
-    // Update last activity
-    this.lastActivity = new Date();
-    
-    next();
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Static Methods
-teamSchema.statics.findOpenTeams = function(hackathonId, filters = {}, limit = 10) {
-  const query = {
-    hackathonId,
-    visibility: 'public',
-    isOpen: true,
-    status: { $in: ['forming', 'recruiting'] },
-    ...filters
-  };
+// Pre-save middleware to update team size and completion score
+teamSchema.pre('save', function(next) {
+  // Update current team size
+  this.teamSize.current = this.members.filter(member => member.status === 'active').length;
   
-  return this.find(query)
-    .populate('leaderId', 'firstName lastName username profilePicture skills')
-    .populate('members.userId', 'firstName lastName username profilePicture')
-    .sort({ featured: -1, trending: -1, 'statistics.profileViews': -1, createdAt: -1 })
-    .limit(limit);
-};
-
-teamSchema.statics.findBySkills = function(hackathonId, skills, limit = 10) {
-  return this.find({
-    hackathonId,
-    visibility: 'public',
-    isOpen: true,
-    status: { $in: ['forming', 'recruiting'] },
-    'requiredSkills.skill': { $in: skills.map(s => new RegExp(s, 'i')) }
-  })
-  .populate('leaderId', 'firstName lastName username profilePicture')
-  .sort({ 'requiredSkills.priority': -1, featured: -1, createdAt: -1 })
-  .limit(limit);
-};
-
-teamSchema.statics.findFeatured = function(hackathonId, limit = 5) {
-  return this.find({
-    hackathonId,
-    featured: true,
-    visibility: 'public'
-  })
-  .populate('leaderId', 'firstName lastName username profilePicture')
-  .populate('members.userId', 'firstName lastName username profilePicture')
-  .sort({ createdAt: -1 })
-  .limit(limit);
-};
-
-teamSchema.statics.searchTeams = function(hackathonId, searchTerm, filters = {}, limit = 20) {
-  const query = {
-    hackathonId,
-    visibility: 'public',
-    ...filters
-  };
-  
-  if (searchTerm) {
-    query.$text = { $search: searchTerm };
+  // Update team status based on size
+  if (this.teamSize.current >= this.teamSize.max) {
+    this.status = 'complete';
+  } else if (this.status === 'complete' && this.teamSize.current < this.teamSize.max) {
+    this.status = 'forming';
   }
   
-  return this.find(query)
-    .populate('leaderId', 'firstName lastName username profilePicture')
-    .sort(searchTerm ? { score: { $meta: 'textScore' } } : { featured: -1, createdAt: -1 })
-    .limit(limit);
-};
+  // Update completion score
+  this.stats.completionScore = this.profileCompletion;
+  
+  // Update last activity
+  this.stats.lastActivity = new Date();
+  
+  next();
+});
 
-teamSchema.statics.getTeamStats = function(hackathonId) {
-  return this.aggregate([
-    { $match: { hackathonId: mongoose.Types.ObjectId(hackathonId) } },
-    {
-      $group: {
-        _id: null,
-        totalTeams: { $sum: 1 },
-        completedTeams: { $sum: { $cond: [{ $gte: ['$currentSize', '$maxMembers'] }, 1, 0] } },
-        openTeams: { $sum: { $cond: ['$isOpen', 1, 0] } },
-        avgTeamSize: { $avg: '$currentSize' },
-        totalMembers: { $sum: '$currentSize' }
-      }
-    }
-  ]);
-};
-
-// Instance Methods
-teamSchema.methods.addMember = async function(userId, role = 'other', skills = [], options = {}) {
-  if (this.currentSize >= this.maxMembers) {
+// Method to add a member
+teamSchema.methods.addMember = function(userId, role = 'developer') {
+  if (this.isFull) {
     throw new Error('Team is already full');
   }
   
-  const existingMember = this.members.find(
-    member => member.userId.toString() === userId.toString() && 
-              ['active', 'inactive'].includes(member.status)
+  const existingMember = this.members.find(member => 
+    member.userId.toString() === userId.toString() && member.status === 'active'
   );
   
   if (existingMember) {
-    if (existingMember.status === 'inactive') {
-      existingMember.status = 'active';
-      existingMember.joinedAt = new Date();
-      return this.save();
-    }
-    throw new Error('User is already a team member');
+    throw new Error('User is already a member of this team');
   }
   
-  const memberData = {
+  this.members.push({
     userId,
     role,
-    skills: skills.map(skill => typeof skill === 'string' ? { name: skill } : skill),
     joinedAt: new Date(),
-    status: 'active',
-    ...options
-  };
+    status: 'active'
+  });
   
-  this.members.push(memberData);
-  this.logActivity('member_added', userId, { role, memberCount: this.currentSize + 1 });
+  // Update role count
+  const roleIndex = this.preferredRoles.findIndex(r => r.role === role);
+  if (roleIndex !== -1) {
+    this.preferredRoles[roleIndex].filled += 1;
+  }
   
   return this.save();
 };
 
-teamSchema.methods.removeMember = async function(userId, reason = 'left') {
-  const memberIndex = this.members.findIndex(
-    member => member.userId.toString() === userId.toString() && 
-              member.status === 'active'
+// Method to remove a member
+teamSchema.methods.removeMember = function(userId, reason = 'left') {
+  const memberIndex = this.members.findIndex(member => 
+    member.userId.toString() === userId.toString() && member.status === 'active'
   );
   
   if (memberIndex === -1) {
-    throw new Error('User is not an active team member');
+    throw new Error('User is not an active member of this team');
   }
   
-  if (this.members[memberIndex].userId.toString() === this.leaderId.toString()) {
+  if (this.leaderId.toString() === userId.toString()) {
     throw new Error('Team leader cannot be removed. Transfer leadership first.');
   }
   
-  this.members[memberIndex].status = reason === 'removed' ? 'removed' : 'left';
-  this.logActivity('member_removed', userId, { reason, memberCount: this.currentSize - 1 });
+  const member = this.members[memberIndex];
+  member.status = reason;
+  
+  // Update role count
+  const roleIndex = this.preferredRoles.findIndex(r => r.role === member.role);
+  if (roleIndex !== -1 && this.preferredRoles[roleIndex].filled > 0) {
+    this.preferredRoles[roleIndex].filled -= 1;
+  }
   
   return this.save();
 };
 
-teamSchema.methods.updateMemberRole = async function(userId, newRole, updatedBy) {
-  const member = this.members.find(
-    member => member.userId.toString() === userId.toString() && 
-              member.status === 'active'
-  );
-  
-  if (!member) {
-    throw new Error('User is not an active team member');
-  }
-  
-  const oldRole = member.role;
-  member.role = newRole;
-  
-  this.logActivity('role_updated', updatedBy, { 
-    targetUser: userId, 
-    oldRole, 
-    newRole 
-  });
-  
-  return this.save();
-};
-
-teamSchema.methods.transferLeadership = async function(newLeaderId, currentLeaderId) {
-  if (this.leaderId.toString() !== currentLeaderId.toString()) {
-    throw new Error('Only current leader can transfer leadership');
-  }
-  
-  const newLeader = this.members.find(
-    member => member.userId.toString() === newLeaderId.toString() && 
-              member.status === 'active'
+// Method to transfer leadership
+teamSchema.methods.transferLeadership = function(newLeaderId) {
+  const newLeader = this.members.find(member => 
+    member.userId.toString() === newLeaderId.toString() && member.status === 'active'
   );
   
   if (!newLeader) {
     throw new Error('New leader must be an active team member');
   }
   
-  // Update roles
-  const oldLeader = this.members.find(
-    member => member.userId.toString() === currentLeaderId.toString()
+  // Update old leader permissions
+  const oldLeader = this.members.find(member => 
+    member.userId.toString() === this.leaderId.toString()
   );
   if (oldLeader) {
-    oldLeader.role = 'other';
+    oldLeader.permissions = {
+      canInvite: false,
+      canKick: false,
+      canEditTeam: false
+    };
   }
   
-  newLeader.role = 'leader';
+  // Update new leader
   this.leaderId = newLeaderId;
-  
-  this.logActivity('leadership_transferred', currentLeaderId, {
-    newLeader: newLeaderId,
-    oldLeader: currentLeaderId
-  });
+  newLeader.role = 'leader';
+  newLeader.permissions = {
+    canInvite: true,
+    canKick: true,
+    canEditTeam: true
+  };
   
   return this.save();
 };
 
-teamSchema.methods.addCoLeader = async function(userId, permissions = [], assignedBy) {
-  const member = this.members.find(
-    member => member.userId.toString() === userId.toString() && 
-              member.status === 'active'
+// Method to check if user can perform action
+teamSchema.methods.canUserPerformAction = function(userId, action) {
+  if (this.leaderId.toString() === userId.toString()) {
+    return true; // Leader can do everything
+  }
+  
+  const member = this.members.find(member => 
+    member.userId.toString() === userId.toString() && member.status === 'active'
   );
   
   if (!member) {
-    throw new Error('User must be an active team member');
+    return false;
   }
   
-  const existingCoLeader = this.coLeaders.find(
-    coLeader => coLeader.userId.toString() === userId.toString()
-  );
-  
-  if (existingCoLeader) {
-    throw new Error('User is already a co-leader');
-  }
-  
-  this.coLeaders.push({
-    userId,
-    permissions,
-    assignedAt: new Date()
-  });
-  
-  member.role = 'co_leader';
-  
-  this.logActivity('co_leader_added', assignedBy, { coLeader: userId, permissions });
-  
-  return this.save();
-};
-
-teamSchema.methods.submitApplication = async function(applicationData) {
-  const existingApplication = this.applications.find(
-    app => app.userId.toString() === applicationData.userId.toString() && 
-           app.status === 'pending'
-  );
-  
-  if (existingApplication) {
-    throw new Error('User already has a pending application');
-  }
-  
-  if (this.currentSize >= this.maxMembers) {
-    throw new Error('Team is full');
-  }
-  
-  this.applications.push({
-    ...applicationData,
-    appliedAt: new Date(),
-    status: 'pending'
-  });
-  
-  this.statistics.applicationsReceived++;
-  this.logActivity('application_received', applicationData.userId, { role: applicationData.role });
-  
-  return this.save();
-};
-
-teamSchema.methods.reviewApplication = async function(applicationId, decision, reviewerId, feedback = '') {
-  const application = this.applications.id(applicationId);
-  
-  if (!application) {
-    throw new Error('Application not found');
-  }
-  
-  if (application.status !== 'pending') {
-    throw new Error('Application has already been reviewed');
-  }
-  
-  application.status = decision;
-  application.reviewedBy = reviewerId;
-  application.reviewedAt = new Date();
-  application.feedback = feedback;
-  
-  if (decision === 'accepted') {
-    this.statistics.applicationsAccepted++;
-    await this.addMember(
-      application.userId, 
-      application.role, 
-      application.skills
-    );
-  }
-  
-  this.logActivity('application_reviewed', reviewerId, {
-    applicant: application.userId,
-    decision,
-    role: application.role
-  });
-  
-  return this.save();
-};
-
-teamSchema.methods.generateInviteLink = function(createdBy, maxUses = 1, expiresIn = 24) {
-  const code = crypto.randomBytes(16).toString('hex');
-  const expiresAt = new Date(Date.now() + expiresIn * 60 * 60 * 1000);
-  
-  this.inviteLinks.push({
-    code,
-    createdBy,
-    expiresAt,
-    maxUses,
-    currentUses: 0,
-    isActive: true
-  });
-  
-  return code;
-};
-
-teamSchema.methods.useInviteLink = async function(code, userId) {
-  const invite = this.inviteLinks.find(
-    inv => inv.code === code && inv.isActive && inv.expiresAt > new Date()
-  );
-  
-  if (!invite) {
-    throw new Error('Invalid or expired invite link');
-  }
-  
-  if (invite.currentUses >= invite.maxUses) {
-    throw new Error('Invite link has reached maximum uses');
-  }
-  
-  invite.currentUses++;
-  if (invite.currentUses >= invite.maxUses) {
-    invite.isActive = false;
-  }
-  
-  await this.addMember(userId);
-  this.logActivity('joined_via_invite', userId, { inviteCode: code });
-  
-  return this.save();
-};
-
-teamSchema.methods.generateInviteCode = function() {
-  return crypto.randomBytes(4).toString('hex').toUpperCase();
-};
-
-teamSchema.methods.canUserJoin = function(userId) {
-  if (this.visibility === 'private') return false;
-  if (!this.isOpen) return false;
-  if (this.currentSize >= this.maxMembers) return false;
-  
-  const isMember = this.members.some(
-    member => member.userId.toString() === userId.toString() && 
-              ['active', 'inactive'].includes(member.status)
-  );
-  
-  return !isMember;
-};
-
-teamSchema.methods.hasPermission = function(userId, permission) {
-  if (this.leaderId.toString() === userId.toString()) return true;
-  
-  const coLeader = this.coLeaders.find(
-    cl => cl.userId.toString() === userId.toString()
-  );
-  
-  return coLeader && coLeader.permissions.includes(permission);
-};
-
-teamSchema.methods.updateProject = function(projectData, updatedBy) {
-  Object.assign(this.projectDetails, projectData);
-  this.logActivity('project_updated', updatedBy, { fields: Object.keys(projectData) });
-  return this.save();
-};
-
-teamSchema.methods.addAchievement = function(achievementData) {
-  this.achievements.push({
-    ...achievementData,
-    date: achievementData.date || new Date()
-  });
-  
-  this.logActivity('achievement_added', null, { achievement: achievementData.type });
-  return this.save();
-};
-
-teamSchema.methods.logActivity = function(action, userId, details = {}) {
-  this.activityLog.push({
-    action,
-    userId,
-    timestamp: new Date(),
-    details
-  });
-  
-  // Keep only last 100 activities
-  if (this.activityLog.length > 100) {
-    this.activityLog = this.activityLog.slice(-100);
+  switch (action) {
+    case 'invite':
+      return member.permissions.canInvite;
+    case 'kick':
+      return member.permissions.canKick;
+    case 'edit':
+      return member.permissions.canEditTeam;
+    default:
+      return false;
   }
 };
 
-teamSchema.methods.calculateHealthScore = function() {
-  let score = 100;
-  const now = new Date();
-  const daysSinceLastActivity = (now - this.lastActivity) / (1000 * 60 * 60 * 24);
+// Static method to find teams by hackathon with filters
+teamSchema.statics.findByHackathonWithFilters = function(hackathonId, filters = {}) {
+  const query = { hackathonId, status: { $ne: 'disbanded' } };
   
-  // Activity factor (0-25 points)
-  let activityScore = Math.max(0, 25 - (daysSinceLastActivity * 2));
+  if (filters.status) {
+    query.status = filters.status;
+  }
   
-  // Collaboration factor (0-25 points)
-  const recentActivities = this.activityLog.filter(
-    log => (now - log.timestamp) < (7 * 24 * 60 * 60 * 1000)
-  ).length;
-  let collaborationScore = Math.min(25, recentActivities * 2);
+  if (filters.skills && filters.skills.length > 0) {
+    query.requiredSkills = { $in: filters.skills };
+  }
   
-  // Progress factor (0-25 points)
-  const completedRoadmapItems = this.projectDetails.roadmap?.filter(
-    item => item.status === 'completed'
-  ).length || 0;
-  const totalRoadmapItems = this.projectDetails.roadmap?.length || 1;
-  let progressScore = (completedRoadmapItems / totalRoadmapItems) * 25;
+  if (filters.hasOpenings) {
+    query.$expr = { $lt: ['$teamSize.current', '$teamSize.max'] };
+  }
   
-  // Communication factor (0-25 points)
-  const hasActiveComm = Object.values(this.communication).some(v => v && v !== '');
-  let communicationScore = hasActiveComm ? 25 : 10;
+  if (filters.location) {
+    query['location.preference'] = filters.location;
+  }
   
-  this.health = {
-    score: Math.round(activityScore + collaborationScore + progressScore + communicationScore),
-    lastCalculated: now,
-    factors: {
-      activity: Math.round(activityScore),
-      collaboration: Math.round(collaborationScore),
-      progress: Math.round(progressScore),
-      communication: Math.round(communicationScore)
-    }
-  };
+  return this.find(query)
+    .populate('leaderId', 'firstName lastName profilePicture')
+    .populate('members.userId', 'firstName lastName profilePicture')
+    .populate('hackathonId', 'title startDate endDate')
+    .sort({ 'stats.lastActivity': -1 });
 };
 
-teamSchema.methods.incrementView = function() {
-  return this.updateOne({ 
-    $inc: { 'statistics.profileViews': 1 },
-    $set: { lastActivity: new Date() }
-  });
-};
-
-teamSchema.methods.incrementJoinRequests = function() {
-  return this.updateOne({ $inc: { 'statistics.joinRequests': 1 } });
-};
-
-teamSchema.methods.addReview = function(reviewData) {
-  this.reviews.push({
-    ...reviewData,
-    date: new Date()
-  });
-  
-  // Recalculate average rating
-  const totalRating = this.reviews.reduce((sum, review) => sum + review.rating, 0);
-  this.statistics.averageRating = totalRating / this.reviews.length;
-  
-  return this.save();
-};
-
-teamSchema.methods.createBackup = async function() {
-  const backupData = this.toObject();
-  // In a real implementation, you would save this to cloud storage
-  this.backup.lastBackup = new Date();
-  return this.save();
-};
-
-teamSchema.methods.getRecommendedTeams = function(limit = 5) {
-  const skills = this.skillsAvailable;
-  const categories = this.categories;
-  
-  return this.constructor.find({
-    _id: { $ne: this._id },
-    hackathonId: this.hackathonId,
-    visibility: 'public',
-    $or: [
-      { 'requiredSkills.skill': { $in: skills } },
-      { categories: { $in: categories } },
-      { tags: { $in: this.tags } }
-    ]
-  })
-  .populate('leaderId', 'firstName lastName username profilePicture')
-  .sort({ 'statistics.profileViews': -1, featured: -1 })
-  .limit(limit);
-};
-
-teamSchema.methods.getSimilarTeams = function(limit = 5) {
-  return this.constructor.find({
-    _id: { $ne: this._id },
-    hackathonId: this.hackathonId,
-    visibility: 'public',
-    categories: { $in: this.categories },
-    difficulty: this.difficulty
-  })
-  .populate('leaderId', 'firstName lastName username profilePicture')
-  .sort({ 'statistics.profileViews': -1 })
-  .limit(limit);
-};
-
-// Post-save middleware
-teamSchema.post('save', function(doc) {
-  console.log(`Team "${doc.name}" updated - Status: ${doc.status}, Size: ${doc.currentSize}/${doc.maxMembers}, Health: ${doc.health.score}%`);
-});
-
-// Post-remove middleware
-teamSchema.post('remove', function(doc) {
-  console.log(`Team "${doc.name}" has been deleted`);
-});
-
-// Query helpers
-teamSchema.query.byHackathon = function(hackathonId) {
-  return this.where({ hackathonId });
-};
-
-teamSchema.query.isOpen = function() {
-  return this.where({ isOpen: true, visibility: 'public' });
-};
-
-teamSchema.query.hasSkill = function(skill) {
-  return this.where({ 'requiredSkills.skill': new RegExp(skill, 'i') });
-};
-
-teamSchema.query.inCategories = function(categories) {
-  return this.where({ categories: { $in: categories } });
-};
-
-teamSchema.query.featured = function() {
-  return this.where({ featured: true });
-};
-
-teamSchema.query.withLeader = function() {
-  return this.populate('leaderId', 'firstName lastName username profilePicture skills');
-};
-
-teamSchema.query.withMembers = function() {
-  return this.populate('members.userId', 'firstName lastName username profilePicture skills');
-};
-
-teamSchema.query.withHackathon = function() {
-  return this.populate('hackathonId', 'name startDate endDate status');
-};
-
-// Export the model
 module.exports = mongoose.model('Team', teamSchema);

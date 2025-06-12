@@ -37,8 +37,21 @@ const uploadLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Create rate limiter for team creation routes
+const createTeamLimiter = rateLimit({
+  windowMs: 24 * 60 * 60 * 1000, // 24 hours
+  max: 3, // Limit each IP to 3 team creations per day
+  message: {
+    error: 'Team creation limit exceeded, please try again later.',
+    retryAfter: '24 hours'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 module.exports = {
   apiLimiter,
   authLimiter,
-  uploadLimiter
+  uploadLimiter,
+  createTeamLimiter
 };

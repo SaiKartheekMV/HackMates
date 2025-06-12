@@ -1,181 +1,191 @@
 import React, { useState, useEffect } from 'react';
-import { teamAPI } from '../services/api'; // Adjust import path as needed
+import { teamAPI } from '../services/api';
 
 const TeamDashboard = () => {
   const [teams, setTeams] = useState([]);
   const [selectedTeam, setSelectedTeam] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
-  const [applications, setApplications] = useState([]);
-  const [teamAnalytics, setTeamAnalytics] = useState(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
-  const [inviteLink, setInviteLink] = useState('');
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
-  // New team form state
+  // Form states
   const [newTeam, setNewTeam] = useState({
     name: '',
     description: '',
-    motto: '',
+    tagline: '',
     hackathonId: '',
-    maxMembers: 5,
-    visibility: 'public',
-    joinMethod: 'open',
-    categories: [],
+    maxSize: 5,
     requiredSkills: [],
-    technologies: []
+    preferredRoles: [],
+    projectCategory: '',
+    communicationChannel: 'discord',
+    isPublic: true
   });
 
-  // Load user's teams on component mount
+  const [inviteData, setInviteData] = useState({
+    email: '',
+    role: 'developer'
+  });
+
+  const [skillInput, setSkillInput] = useState('');
+  const [currentUser] = useState({ id: 'current_user_id' }); // This should come from auth context
+
+  const roleOptions = ['developer', 'designer', 'data_scientist', 'product_manager', 'marketing', 'other'];
+  const skillPriorities = ['low', 'medium', 'high', 'critical'];
+  const projectCategories = ['web', 'mobile', 'ai_ml', 'blockchain', 'iot', 'ar_vr', 'gaming', 'fintech', 'healthtech', 'edtech', 'other'];
+
   useEffect(() => {
-    loadTeams();
+    fetchMyTeams();
   }, []);
 
-  // Load team details when a team is selected
-  useEffect(() => {
-    if (selectedTeam) {
-      loadTeamDetails(selectedTeam._id);
-    }
-  }, [selectedTeam]);
-
-  const loadTeams = async () => {
+  const fetchMyTeams = async () => {
     try {
       setLoading(true);
       const response = await teamAPI.getMyTeams();
-setTeams(Array.isArray(response.data) ? response.data : []);
-if (response.data && Array.isArray(response.data) && response.data.length > 0) {
-  setSelectedTeam(response.data[0]);
-}
-    } catch (err) {
-      setError('Failed to load teams');
-      console.error('Error loading teams:', err);
+      setTeams(response.data || []);
+      if (response.data && response.data.length > 0) {
+        setSelectedTeam(response.data[0]);
+      }
+    } catch (error) {
+      setError('Failed to fetch teams');
+      console.error('Error fetching teams:', error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadTeamDetails = async (teamId) => {
-    try {
-      const [teamResponse, applicationsResponse, analyticsResponse] = await Promise.all([
-        teamAPI.getTeamById(teamId),
-        teamAPI.getApplications(teamId).catch(() => ({ data: [] })),
-        teamAPI.getTeamAnalytics(teamId).catch(() => ({ data: null }))
-      ]);
-      
-      setSelectedTeam(teamResponse.data);
-      setApplications(applicationsResponse.data || []);
-      setTeamAnalytics(analyticsResponse.data);
-    } catch (err) {
-      console.error('Error loading team details:', err);
     }
   };
 
   const handleCreateTeam = async (e) => {
     e.preventDefault();
     try {
-const response = await teamAPI.createTeam(newTeam);
-setTeams(prevTeams => [...(Array.isArray(prevTeams) ? prevTeams : []), response.data]);
+      const teamData = {
+        ...newTeam,
+        teamSize: { max: newTeam.maxSize },
+        requiredSkills: newTeam.requiredSkills.map(skill => ({
+          skill: skill.name,
+          priority: skill.priority || 'medium'
+        })),
+        preferredRoles: newTeam.preferredRoles.map(role => ({
+          role: role.name,
+          count: role.count || 1
+        })),
+        project: {
+          category: newTeam.projectCategory
+        },
+        communication: {
+          primaryChannel: newTeam.communicationChannel
+        },
+        settings: {
+          isPublic: newTeam.isPublic
+        }
+      };
 
+      const response = await teamAPI.createTeam(teamData);
+      setSuccess('Team created successfully!');
       setShowCreateModal(false);
       setNewTeam({
         name: '',
         description: '',
-        motto: '',
+        tagline: '',
         hackathonId: '',
-        maxMembers: 5,
-        visibility: 'public',
-        joinMethod: 'open',
-        categories: [],
+        maxSize: 5,
         requiredSkills: [],
-        technologies: []
+        preferredRoles: [],
+        projectCategory: '',
+        communicationChannel: 'discord',
+        isPublic: true
       });
-    } catch (err) {
+      fetchMyTeams();
+    } catch (error) {
       setError('Failed to create team');
-      console.error('Error creating team:', err);
+      console.error('Error creating team:', error);
     }
   };
 
-  const handleRemoveMember = async (memberId) => {
-    if (!selectedTeam || !window.confirm('Are you sure you want to remove this member?')) return;
-    
+  const handleInviteMember = async (e) => {
+    e.preventDefault();
     try {
-      await teamAPI.removeMember(selectedTeam._id, memberId);
-      loadTeamDetails(selectedTeam._id);
-    } catch (err) {
-      setError('Failed to remove member');
-      console.error('Error removing member:', err);
+      await teamAPI.inviteToTeam(selectedTeam._id, inviteData);
+      setSuccess('Invitation sent successfully!');
+      setShowInviteModal(false);
+      setInviteData({ email: '', role: 'developer' });
+      // Refresh team data
+      const updatedTeam = await teamAPI.getTeamById(selectedTeam._id);
+      setSelectedTeam(updatedTeam.data);
+    } catch (error) {
+      setError('Failed to send invitation');
     }
   };
 
-  const handleReviewApplication = async (applicationId, decision) => {
-    try {
-      await teamAPI.reviewApplication(selectedTeam._id, applicationId, { 
-        decision, 
-        feedback: decision === 'rejected' ? 'Application reviewed' : 'Welcome to the team!' 
+  const handleRemoveMember = async (userId) => {
+    if (window.confirm('Are you sure you want to remove this member?')) {
+      try {
+        await teamAPI.removeMember(selectedTeam._id, userId);
+        setSuccess('Member removed successfully!');
+        const updatedTeam = await teamAPI.getTeamById(selectedTeam._id);
+        setSelectedTeam(updatedTeam.data);
+      } catch (error) {
+        setError('Failed to remove member');
+      }
+    }
+  };
+
+  const handleLeaveTeam = async () => {
+    if (window.confirm('Are you sure you want to leave this team?')) {
+      try {
+        await teamAPI.leaveTeam(selectedTeam._id);
+        setSuccess('Left team successfully!');
+        fetchMyTeams();
+      } catch (error) {
+        setError('Failed to leave team');
+      }
+    }
+  };
+
+  const addSkill = () => {
+    if (skillInput.trim()) {
+      setNewTeam({
+        ...newTeam,
+        requiredSkills: [...newTeam.requiredSkills, { name: skillInput.trim(), priority: 'medium' }]
       });
-      loadTeamDetails(selectedTeam._id);
-    } catch (err) {
-      setError('Failed to review application');
-      console.error('Error reviewing application:', err);
+      setSkillInput('');
     }
   };
 
-  const handleGenerateInvite = async () => {
-    try {
-      const response = await teamAPI.generateInviteLink(selectedTeam._id, {
-        maxUses: 5,
-        expiresIn: 24
-      });
-      setInviteLink(response.data.inviteLink || response.data.code);
-      setShowInviteModal(true);
-    } catch (err) {
-      setError('Failed to generate invite link');
-      console.error('Error generating invite:', err);
-    }
-  };
-
-  const copyInviteLink = () => {
-    navigator.clipboard.writeText(inviteLink);
-    alert('Invite link copied to clipboard!');
+  const removeSkill = (index) => {
+    setNewTeam({
+      ...newTeam,
+      requiredSkills: newTeam.requiredSkills.filter((_, i) => i !== index)
+    });
   };
 
   const getStatusBadgeClass = (status) => {
-    const statusClasses = {
-      'forming': 'bg-info',
-      'recruiting': 'bg-warning',
-      'complete': 'bg-success',
-      'developing': 'bg-primary',
-      'testing': 'bg-secondary',
-      'submitted': 'bg-success',
-      'finished': 'bg-dark'
-    };
-    return statusClasses[status] || 'bg-secondary';
+    switch (status) {
+      case 'forming': return 'bg-warning';
+      case 'complete': return 'bg-success';
+      case 'competing': return 'bg-primary';
+      case 'finished': return 'bg-secondary';
+      case 'disbanded': return 'bg-danger';
+      default: return 'bg-secondary';
+    }
   };
 
-  const getRoleIcon = (role) => {
-    const roleIcons = {
-      'leader': '👑',
-      'co_leader': '⭐',
-      'frontend_dev': '🎨',
-      'backend_dev': '⚙️',
-      'fullstack_dev': '🔧',
-      'mobile_dev': '📱',
-      'ui_designer': '🎭',
-      'ux_designer': '🎯',
-      'data_scientist': '📊',
-      'ml_engineer': '🤖',
-      'devops': '☁️',
-      'qa_tester': '🧪',
-      'pm': '📋',
-      'other': '👤'
-    };
-    return roleIcons[role] || '👤';
+  const getRoleBadgeClass = (role) => {
+    switch (role) {
+      case 'leader': return 'bg-primary';
+      case 'developer': return 'bg-info';
+      case 'designer': return 'bg-success';
+      case 'data_scientist': return 'bg-warning';
+      case 'product_manager': return 'bg-danger';
+      default: return 'bg-secondary';
+    }
   };
 
   if (loading) {
     return (
-      <div className="container-fluid py-4">
+      <div className="container mt-4">
         <div className="d-flex justify-content-center">
           <div className="spinner-border" role="status">
             <span className="visually-hidden">Loading...</span>
@@ -185,510 +195,395 @@ setTeams(prevTeams => [...(Array.isArray(prevTeams) ? prevTeams : []), response.
     );
   }
 
-  if (error) {
-    return (
-      <div className="container-fluid py-4">
-        <div className="alert alert-danger" role="alert">
-          {error}
-          <button className="btn btn-sm btn-outline-danger ms-2" onClick={loadTeams}>
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="container-fluid py-4">
+    <div className="container-fluid mt-4">
+      {/* Alerts */}
+      {error && (
+        <div className="alert alert-danger alert-dismissible fade show" role="alert">
+          {error}
+          <button type="button" className="btn-close" onClick={() => setError('')}></button>
+        </div>
+      )}
+      {success && (
+        <div className="alert alert-success alert-dismissible fade show" role="alert">
+          {success}
+          <button type="button" className="btn-close" onClick={() => setSuccess('')}></button>
+        </div>
+      )}
+
       <div className="row">
         {/* Sidebar - Team List */}
-        <div className="col-md-3 col-lg-2">
+        <div className="col-md-3">
           <div className="card">
             <div className="card-header d-flex justify-content-between align-items-center">
-              <h6 className="mb-0">My Teams</h6>
-              <button 
-                className="btn btn-sm btn-primary"
-                onClick={() => setShowCreateModal(true)}
-              >
-                <i className="bi bi-plus"></i>
+              <h5 className="mb-0">My Teams</h5>
+              <button className="btn btn-primary btn-sm" onClick={() => setShowCreateModal(true)}>
+                <i className="bi bi-plus"></i> New
               </button>
             </div>
             <div className="card-body p-0">
-              <div className="list-group list-group-flush">
-                {Array.isArray(teams) && teams.map(team => (
-                  <button
+              {teams.length === 0 ? (
+                <div className="p-3 text-center text-muted">
+                  No teams found
+                </div>
+              ) : (
+                teams.map(team => (
+                  <div
                     key={team._id}
                     className={`list-group-item list-group-item-action ${selectedTeam?._id === team._id ? 'active' : ''}`}
                     onClick={() => setSelectedTeam(team)}
+                    style={{ cursor: 'pointer' }}
                   >
-                    <div className="d-flex justify-content-between align-items-center">
+                    <div className="d-flex justify-content-between align-items-start">
                       <div>
                         <h6 className="mb-1">{team.name}</h6>
-                        <small className={`badge ${getStatusBadgeClass(team.status)}`}>
-                          {team.status}
+                        <p className="mb-1 small">{team.tagline || 'No tagline'}</p>
+                        <small>
+                          <span className={`badge ${getStatusBadgeClass(team.status)} me-2`}>
+                            {team.status}
+                          </span>
+                          {team.teamSize?.current || 0}/{team.teamSize?.max || 0} members
                         </small>
                       </div>
-                      <small>{team.currentSize}/{team.maxMembers}</small>
                     </div>
-                  </button>
-                ))}
-              </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
 
         {/* Main Content */}
-        <div className="col-md-9 col-lg-10">
+        <div className="col-md-9">
           {selectedTeam ? (
-            <>
-              {/* Team Header */}
-              <div className="card mb-4">
-                <div className="card-body">
-                  <div className="d-flex justify-content-between align-items-start">
-                    <div>
-                      <h2 className="card-title">{selectedTeam.name}</h2>
-                      <p className="card-text text-muted">{selectedTeam.description}</p>
-                      {selectedTeam.motto && (
-                        <p className="card-text"><em>"{selectedTeam.motto}"</em></p>
-                      )}
-                      <div className="d-flex gap-2 flex-wrap">
-                        <span className={`badge ${getStatusBadgeClass(selectedTeam.status)}`}>
-                          {selectedTeam.status}
-                        </span>
-                        <span className="badge bg-secondary">
-                          {selectedTeam.currentSize}/{selectedTeam.maxMembers} members
-                        </span>
-                        <span className="badge bg-info">
-                          {selectedTeam.visibility}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="btn-group">
-                      <button 
-                        className="btn btn-outline-primary"
-                        onClick={handleGenerateInvite}
-                      >
-                        <i className="bi bi-share"></i> Invite
+            <div className="card">
+              <div className="card-header">
+                <div className="d-flex justify-content-between align-items-center">
+                  <div>
+                    <h4 className="mb-0">{selectedTeam.name}</h4>
+                    <small className="text-muted">{selectedTeam.tagline}</small>
+                  </div>
+                  <div>
+                    <span className={`badge ${getStatusBadgeClass(selectedTeam.status)} me-2`}>
+                      {selectedTeam.status}
+                    </span>
+                    {selectedTeam.leaderId === currentUser.id && (
+                      <button className="btn btn-outline-primary btn-sm me-2" onClick={() => setShowInviteModal(true)}>
+                        <i className="bi bi-person-plus"></i> Invite
                       </button>
-                      <button className="btn btn-outline-secondary">
-                        <i className="bi bi-gear"></i> Settings
+                    )}
+                    {selectedTeam.leaderId !== currentUser.id && (
+                      <button className="btn btn-outline-danger btn-sm" onClick={handleLeaveTeam}>
+                        <i className="bi bi-box-arrow-right"></i> Leave
                       </button>
-                    </div>
+                    )}
                   </div>
                 </div>
               </div>
 
               {/* Navigation Tabs */}
-              <ul className="nav nav-tabs mb-3">
-                <li className="nav-item">
-                  <button 
-                    className={`nav-link ${activeTab === 'overview' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('overview')}
-                  >
-                    Overview
-                  </button>
-                </li>
-                <li className="nav-item">
-                  <button 
-                    className={`nav-link ${activeTab === 'members' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('members')}
-                  >
-                    Members ({selectedTeam.currentSize})
-                  </button>
-                </li>
-                <li className="nav-item">
-                  <button 
-                    className={`nav-link ${activeTab === 'project' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('project')}
-                  >
-                    Project
-                  </button>
-                </li>
-                <li className="nav-item">
-                  <button 
-                    className={`nav-link ${activeTab === 'applications' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('applications')}
-                  >
-                    Applications ({applications.length})
-                  </button>
-                </li>
-                <li className="nav-item">
-                  <button 
-                    className={`nav-link ${activeTab === 'analytics' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('analytics')}
-                  >
-                    Analytics
-                  </button>
-                </li>
-              </ul>
+              <div className="card-body">
+                <ul className="nav nav-tabs mb-3">
+                  <li className="nav-item">
+                    <button
+                      className={`nav-link ${activeTab === 'overview' ? 'active' : ''}`}
+                      onClick={() => setActiveTab('overview')}
+                    >
+                      Overview
+                    </button>
+                  </li>
+                  <li className="nav-item">
+                    <button
+                      className={`nav-link ${activeTab === 'members' ? 'active' : ''}`}
+                      onClick={() => setActiveTab('members')}
+                    >
+                      Members
+                    </button>
+                  </li>
+                  <li className="nav-item">
+                    <button
+                      className={`nav-link ${activeTab === 'project' ? 'active' : ''}`}
+                      onClick={() => setActiveTab('project')}
+                    >
+                      Project
+                    </button>
+                  </li>
+                  <li className="nav-item">
+                    <button
+                      className={`nav-link ${activeTab === 'settings' ? 'active' : ''}`}
+                      onClick={() => setActiveTab('settings')}
+                    >
+                      Settings
+                    </button>
+                  </li>
+                </ul>
 
-              {/* Tab Content */}
-              <div className="tab-content">
-                {/* Overview Tab */}
+                {/* Tab Content */}
                 {activeTab === 'overview' && (
                   <div className="row">
                     <div className="col-md-8">
-                      <div className="card mb-4">
-                        <div className="card-header">
-                          <h5>Team Progress</h5>
-                        </div>
-                        <div className="card-body">
-                          <div className="mb-3">
-                            <label className="form-label">Team Completion</label>
-                            <div className="progress">
-                              <div 
-                                className="progress-bar" 
-                                role="progressbar" 
-                                style={{ width: `${selectedTeam.completionPercentage}%` }}
-                              >
-                                {selectedTeam.completionPercentage}%
-                              </div>
-                            </div>
-                          </div>
-                          {selectedTeam.health && (
-                            <div className="mb-3">
-                              <label className="form-label">Team Health</label>
-                              <div className="progress">
-                                <div 
-                                  className={`progress-bar ${selectedTeam.health.score > 80 ? 'bg-success' : selectedTeam.health.score > 60 ? 'bg-warning' : 'bg-danger'}`}
-                                  role="progressbar" 
-                                  style={{ width: `${selectedTeam.health.score}%` }}
-                                >
-                                  {selectedTeam.health.score}%
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
+                      <h5>Description</h5>
+                      <p>{selectedTeam.description}</p>
+
+                      <h5>Required Skills</h5>
+                      <div className="mb-3">
+                        {selectedTeam.requiredSkills?.map((skill, index) => (
+                          <span key={index} className={`badge bg-secondary me-2 mb-2`}>
+                            {skill.skill} 
+                            <span className={`ms-1 badge ${skill.priority === 'critical' ? 'bg-danger' : skill.priority === 'high' ? 'bg-warning' : 'bg-info'}`}>
+                              {skill.priority}
+                            </span>
+                          </span>
+                        )) || <span className="text-muted">No specific skills required</span>}
                       </div>
 
-                      <div className="card">
-                        <div className="card-header">
-                          <h5>Required Skills</h5>
-                        </div>
-                        <div className="card-body">
-                          {selectedTeam.requiredSkills && selectedTeam.requiredSkills.length > 0 ? (
-                            <div className="row">
-                              {selectedTeam.requiredSkills.map((skill, index) => (
-                                <div key={index} className="col-md-6 col-lg-4 mb-3">
-                                  <div className="card">
-                                    <div className="card-body">
-                                      <h6 className="card-title">{skill.skill}</h6>
-                                      <p className="card-text">
-                                        <small className="text-muted">
-                                          Level: {skill.level} | Priority: {skill.priority}
-                                        </small>
-                                      </p>
-                                      <div className="progress">
-                                        <div 
-                                          className="progress-bar" 
-                                          role="progressbar" 
-                                          style={{ width: `${(skill.fulfilled / skill.count) * 100}%` }}
-                                        >
-                                          {skill.fulfilled}/{skill.count}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="text-muted">No specific skills required</p>
-                          )}
-                        </div>
-                      </div>
+                      <h5>Communication</h5>
+                      <p>
+                        Primary: <strong>{selectedTeam.communication?.primaryChannel || 'Not set'}</strong>
+                        {selectedTeam.communication?.channelLink && (
+                          <a href={selectedTeam.communication.channelLink} target="_blank" rel="noopener noreferrer" className="ms-2">
+                            Join Channel
+                          </a>
+                        )}
+                      </p>
                     </div>
 
                     <div className="col-md-4">
-                      <div className="card mb-4">
-                        <div className="card-header">
-                          <h5>Quick Stats</h5>
-                        </div>
+                      <div className="card bg-light">
                         <div className="card-body">
-                          <div className="row text-center">
-                            <div className="col-6">
-                              <h3 className="text-primary">{selectedTeam.statistics?.profileViews || 0}</h3>
-                              <small className="text-muted">Profile Views</small>
-                            </div>
-                            <div className="col-6">
-                              <h3 className="text-success">{selectedTeam.statistics?.applicationsReceived || 0}</h3>
-                              <small className="text-muted">Applications</small>
+                          <h6>Team Statistics</h6>
+                          <div className="mb-2">
+                            <small className="text-muted">Team Size:</small>
+                            <div className="progress mb-2">
+                              <div 
+                                className="progress-bar" 
+                                style={{width: `${((selectedTeam.teamSize?.current || 0) / (selectedTeam.teamSize?.max || 1)) * 100}%`}}
+                              >
+                                {selectedTeam.teamSize?.current || 0}/{selectedTeam.teamSize?.max || 0}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </div>
-
-                      <div className="card">
-                        <div className="card-header">
-                          <h5>Team Categories</h5>
-                        </div>
-                        <div className="card-body">
-                          {selectedTeam.categories && selectedTeam.categories.length > 0 ? (
-                            <div className="d-flex flex-wrap gap-2">
-                              {selectedTeam.categories.map((category, index) => (
-                                <span key={index} className="badge bg-secondary">
-                                  {category}
-                                </span>
-                              ))}
+                          <div className="mb-2">
+                            <small className="text-muted">Profile Completion:</small>
+                            <div className="progress mb-2">
+                              <div 
+                                className="progress-bar bg-success" 
+                                style={{width: `${selectedTeam.stats?.completionScore || 0}%`}}
+                              >
+                                {selectedTeam.stats?.completionScore || 0}%
+                              </div>
                             </div>
-                          ) : (
-                            <p className="text-muted">No categories assigned</p>
-                          )}
+                          </div>
+                          <small className="text-muted">
+                            Views: {selectedTeam.stats?.viewCount || 0}<br/>
+                            Applications: {selectedTeam.stats?.totalApplications || 0}
+                          </small>
                         </div>
                       </div>
                     </div>
                   </div>
                 )}
 
-                {/* Members Tab */}
                 {activeTab === 'members' && (
-                  <div className="card">
-                    <div className="card-header">
-                      <h5>Team Members</h5>
-                    </div>
-                    <div className="card-body">
-                      <div className="row">
-                        {selectedTeam.members && selectedTeam.members.filter(m => m.status === 'active').map((member, index) => (
-                          <div key={index} className="col-md-6 col-lg-4 mb-3">
-                            <div className="card">
-                              <div className="card-body">
-                                <div className="d-flex justify-content-between align-items-start">
-                                  <div>
-                                    <h6 className="card-title">
-                                      {getRoleIcon(member.role)} {member.userId?.firstName || 'Unknown'} {member.userId?.lastName || ''}
-                                    </h6>
-                                    <p className="card-text">
-                                      <small className="text-muted">{member.role}</small>
-                                    </p>
-                                    {member.skills && member.skills.length > 0 && (
-                                      <div className="mt-2">
-                                        {member.skills.slice(0, 3).map((skill, skillIndex) => (
-                                          <span key={skillIndex} className="badge bg-light text-dark me-1">
-                                            {skill.name}
-                                          </span>
-                                        ))}
-                                      </div>
+                  <div>
+                    <h5>Team Members ({selectedTeam.members?.filter(m => m.status === 'active').length || 0})</h5>
+                    <div className="row">
+                      {selectedTeam.members?.filter(m => m.status === 'active').map(member => (
+                        <div key={member._id} className="col-md-6 mb-3">
+                          <div className="card">
+                            <div className="card-body">
+                              <div className="d-flex justify-content-between align-items-center">
+                                <div>
+                                  <h6 className="mb-1">
+                                    {member.userId?.firstName} {member.userId?.lastName}
+                                    {member.userId._id === selectedTeam.leaderId && (
+                                      <i className="bi bi-crown-fill text-warning ms-2"></i>
                                     )}
-                                  </div>
-                                  {member.role !== 'leader' && (
-                                    <div className="dropdown">
-                                      <button 
-                                        className="btn btn-sm btn-outline-secondary"
-                                        type="button"
-                                        data-bs-toggle="dropdown"
-                                      >
-                                        <i className="bi bi-three-dots"></i>
-                                      </button>
-                                      <ul className="dropdown-menu">
-                                        <li>
-                                          <button 
-                                            className="dropdown-item text-danger"
-                                            onClick={() => handleRemoveMember(member.userId._id)}
-                                          >
-                                            Remove Member
-                                          </button>
-                                        </li>
-                                      </ul>
-                                    </div>
+                                  </h6>
+                                  <span className={`badge ${getRoleBadgeClass(member.role)}`}>
+                                    {member.role}
+                                  </span>
+                                  <small className="text-muted d-block">
+                                    Joined: {new Date(member.joinedAt).toLocaleDateString()}
+                                  </small>
+                                  {member.contribution && (
+                                    <small className="text-muted d-block">
+                                      {member.contribution}
+                                    </small>
                                   )}
                                 </div>
+                                {selectedTeam.leaderId === currentUser.id && member.userId._id !== selectedTeam.leaderId && (
+                                  <button 
+                                    className="btn btn-outline-danger btn-sm"
+                                    onClick={() => handleRemoveMember(member.userId._id)}
+                                  >
+                                    Remove
+                                  </button>
+                                )}
                               </div>
                             </div>
                           </div>
-                        ))}
-                      </div>
+                        </div>
+                      )) || <p className="text-muted">No active members</p>}
+                    </div>
+
+                    <h5 className="mt-4">Open Positions</h5>
+                    <div className="row">
+                      {selectedTeam.preferredRoles?.map((role, index) => (
+                        <div key={index} className="col-md-4 mb-2">
+                          <div className="card bg-light">
+                            <div className="card-body py-2">
+                              <small>
+                                <strong>{role.role}</strong>: {role.filled || 0}/{role.count || 1}
+                                {role.filled < role.count && (
+                                  <span className="badge bg-success ms-2">Open</span>
+                                )}
+                              </small>
+                            </div>
+                          </div>
+                        </div>
+                      )) || <p className="text-muted">No specific roles defined</p>}
                     </div>
                   </div>
                 )}
 
-                {/* Project Tab */}
                 {activeTab === 'project' && (
-                  <div className="card">
-                    <div className="card-header">
-                      <h5>Project Details</h5>
-                    </div>
-                    <div className="card-body">
-                      {selectedTeam.projectDetails ? (
-                        <div className="row">
-                          <div className="col-md-8">
-                            <h6>Project Idea</h6>
-                            <p>{selectedTeam.projectDetails.idea || 'No project idea specified yet'}</p>
+                  <div>
+                    <div className="row">
+                      <div className="col-md-8">
+                        <h5>Project Information</h5>
+                        <div className="mb-3">
+                          <label className="form-label"><strong>Project Name:</strong></label>
+                          <p>{selectedTeam.project?.name || 'Not set'}</p>
+                        </div>
+                        <div className="mb-3">
+                          <label className="form-label"><strong>Description:</strong></label>
+                          <p>{selectedTeam.project?.description || 'No description provided'}</p>
+                        </div>
+                        <div className="mb-3">
+                          <label className="form-label"><strong>Category:</strong></label>
+                          <p>{selectedTeam.project?.category || 'Not specified'}</p>
+                        </div>
+                        <div className="mb-3">
+                          <label className="form-label"><strong>Technologies:</strong></label>
+                          <div>
+                            {selectedTeam.project?.technologies?.map((tech, index) => (
+                              <span key={index} className="badge bg-primary me-2 mb-1">{tech}</span>
+                            )) || <span className="text-muted">No technologies listed</span>}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="col-md-4">
+                        <div className="card bg-light">
+                          <div className="card-body">
+                            <h6>Project Status</h6>
+                            <span className={`badge ${selectedTeam.project?.status === 'completed' ? 'bg-success' : 'bg-warning'} mb-3`}>
+                              {selectedTeam.project?.status || 'planning'}
+                            </span>
                             
-                            <h6>Problem Statement</h6>
-                            <p>{selectedTeam.projectDetails.problem || 'No problem statement defined yet'}</p>
-                            
-                            <h6>Solution</h6>
-                            <p>{selectedTeam.projectDetails.solution || 'No solution described yet'}</p>
-                            
-                            {selectedTeam.projectDetails.features && selectedTeam.projectDetails.features.length > 0 && (
-                              <>
-                                <h6>Features</h6>
-                                <ul>
-                                  {selectedTeam.projectDetails.features.map((feature, index) => (
-                                    <li key={index}>{feature}</li>
-                                  ))}
-                                </ul>
-                              </>
+                            <h6>Links</h6>
+                            {selectedTeam.project?.repositoryUrl && (
+                              <a href={selectedTeam.project.repositoryUrl} target="_blank" rel="noopener noreferrer" className="btn btn-outline-primary btn-sm mb-2 d-block">
+                                <i className="bi bi-github"></i> Repository
+                              </a>
+                            )}
+                            {selectedTeam.project?.demoUrl && (
+                              <a href={selectedTeam.project.demoUrl} target="_blank" rel="noopener noreferrer" className="btn btn-outline-success btn-sm mb-2 d-block">
+                                <i className="bi bi-play-circle"></i> Demo
+                              </a>
+                            )}
+                            {selectedTeam.project?.figmaUrl && (
+                              <a href={selectedTeam.project.figmaUrl} target="_blank" rel="noopener noreferrer" className="btn btn-outline-info btn-sm mb-2 d-block">
+                                <i className="bi bi-palette"></i> Design
+                              </a>
                             )}
                           </div>
-                          <div className="col-md-4">
-                            <h6>Tech Stack</h6>
-                            {selectedTeam.projectDetails.technologies && selectedTeam.projectDetails.technologies.length > 0 ? (
-                              <div className="d-flex flex-wrap gap-2">
-                                {selectedTeam.projectDetails.technologies.map((tech, index) => (
-                                  <span key={index} className="badge bg-primary">
-                                    {tech.name}
-                                  </span>
-                                ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'settings' && (
+                  <div>
+                    <h5>Team Settings</h5>
+                    {selectedTeam.leaderId === currentUser.id ? (
+                      <div className="row">
+                        <div className="col-md-6">
+                          <div className="card">
+                            <div className="card-body">
+                              <h6>Visibility Settings</h6>
+                              <div className="mb-3">
+                                <span className="badge bg-info">
+                                  {selectedTeam.settings?.visibility || 'public'}
+                                </span>
                               </div>
-                            ) : (
-                              <p className="text-muted">No technologies specified</p>
-                            )}
-                            
-                            {selectedTeam.projectDetails.repositories && selectedTeam.projectDetails.repositories.length > 0 && (
-                              <>
-                                <h6 className="mt-3">Repositories</h6>
-                                {selectedTeam.projectDetails.repositories.map((repo, index) => (
-                                  <div key={index} className="mb-2">
-                                    <a href={repo.url} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline-primary">
-                                      {repo.name}
-                                    </a>
-                                  </div>
-                                ))}
-                              </>
-                            )}
+                              <div className="form-check">
+                                <input 
+                                  type="checkbox" 
+                                  className="form-check-input" 
+                                  checked={selectedTeam.settings?.isPublic}
+                                  readOnly
+                                />
+                                <label className="form-check-label">Public Team</label>
+                              </div>
+                              <div className="form-check">
+                                <input 
+                                  type="checkbox" 
+                                  className="form-check-input" 
+                                  checked={selectedTeam.settings?.allowDirectJoin}
+                                  readOnly
+                                />
+                                <label className="form-check-label">Allow Direct Join</label>
+                              </div>
+                              <div className="form-check">
+                                <input 
+                                  type="checkbox" 
+                                  className="form-check-input" 
+                                  checked={selectedTeam.settings?.requireApproval}
+                                  readOnly
+                                />
+                                <label className="form-check-label">Require Approval</label>
+                              </div>
+                            </div>
                           </div>
                         </div>
-                      ) : (
-                        <div className="text-center py-4">
-                          <p className="text-muted">No project details available yet</p>
-                          <button className="btn btn-primary">Add Project Details</button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Applications Tab */}
-                {activeTab === 'applications' && (
-                  <div className="card">
-                    <div className="card-header">
-                      <h5>Team Applications</h5>
-                    </div>
-                    <div className="card-body">
-                      {applications && applications.length > 0 ? (
-                        <div className="table-responsive">
-                          <table className="table">
-                            <thead>
-                              <tr>
-                                <th>Applicant</th>
-                                <th>Role</th>
-                                <th>Message</th>
-                                <th>Applied</th>
-                                <th>Status</th>
-                                <th>Actions</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {applications.map((app, index) => (
-                                <tr key={index}>
-                                  <td>{app.userId?.firstName} {app.userId?.lastName}</td>
-                                  <td>{app.role}</td>
-                                  <td>{app.message}</td>
-                                  <td>{new Date(app.appliedAt).toLocaleDateString()}</td>
-                                  <td>
-                                    <span className={`badge ${app.status === 'pending' ? 'bg-warning' : app.status === 'accepted' ? 'bg-success' : 'bg-danger'}`}>
-                                      {app.status}
-                                    </span>
-                                  </td>
-                                  <td>
-                                    {app.status === 'pending' && (
-                                      <div className="btn-group">
-                                        <button 
-                                          className="btn btn-sm btn-success"
-                                          onClick={() => handleReviewApplication(app._id, 'accepted')}
-                                        >
-                                          Accept
-                                        </button>
-                                        <button 
-                                          className="btn btn-sm btn-danger"
-                                          onClick={() => handleReviewApplication(app._id, 'rejected')}
-                                        >
-                                          Reject
-                                        </button>
-                                      </div>
-                                    )}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : (
-                        <div className="text-center py-4">
-                          <p className="text-muted">No applications received yet</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Analytics Tab */}
-                {activeTab === 'analytics' && (
-                  <div className="row">
-                    <div className="col-md-6">
-                      <div className="card mb-4">
-                        <div className="card-header">
-                          <h5>Performance Metrics</h5>
-                        </div>
-                        <div className="card-body">
-                          <div className="row text-center">
-                            <div className="col-6">
-                              <h3 className="text-primary">{selectedTeam.statistics?.totalCommits || 0}</h3>
-                              <small className="text-muted">Total Commits</small>
-                            </div>
-                            <div className="col-6">
-                              <h3 className="text-success">{selectedTeam.statistics?.tasksCompleted || 0}</h3>
-                              <small className="text-muted">Tasks Completed</small>
+                        <div className="col-md-6">
+                          <div className="card">
+                            <div className="card-body">
+                              <h6>Location Preferences</h6>
+                              <p><strong>Type:</strong> {selectedTeam.location?.preference || 'remote'}</p>
+                              {selectedTeam.location?.city && (
+                                <p><strong>City:</strong> {selectedTeam.location.city}</p>
+                              )}
+                              {selectedTeam.location?.country && (
+                                <p><strong>Country:</strong> {selectedTeam.location.country}</p>
+                              )}
+                              {selectedTeam.location?.timezone && (
+                                <p><strong>Timezone:</strong> {selectedTeam.location.timezone}</p>
+                              )}
                             </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="col-md-6">
-                      <div className="card mb-4">
-                        <div className="card-header">
-                          <h5>Team Engagement</h5>
-                        </div>
-                        <div className="card-body">
-                          <div className="row text-center">
-                            <div className="col-6">
-                              <h3 className="text-info">{selectedTeam.statistics?.meetingsHeld || 0}</h3>
-                              <small className="text-muted">Meetings Held</small>
-                            </div>
-                            <div className="col-6">
-                              <h3 className="text-warning">{selectedTeam.statistics?.averageRating || 0}</h3>
-                              <small className="text-muted">Avg Rating</small>
-                            </div>
-                          </div>
-                        </div>
+                    ) : (
+                      <div className="alert alert-info">
+                        Only team leaders can view and modify settings.
                       </div>
-                    </div>
+                    )}
                   </div>
                 )}
               </div>
-            </>
+            </div>
           ) : (
-            <div className="text-center py-5">
-              <h3 className="text-muted">No Team Selected</h3>
-              <p>Select a team from the sidebar or create a new one</p>
-              <button 
-                className="btn btn-primary"
-                onClick={() => setShowCreateModal(true)}
-              >
-                Create New Team
-              </button>
+            <div className="card">
+              <div className="card-body text-center">
+                <h5>No Team Selected</h5>
+                <p className="text-muted">Select a team from the sidebar or create a new one.</p>
+                <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
+                  Create New Team
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -696,16 +591,12 @@ setTeams(prevTeams => [...(Array.isArray(prevTeams) ? prevTeams : []), response.
 
       {/* Create Team Modal */}
       {showCreateModal && (
-        <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+        <div className="modal show d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
           <div className="modal-dialog modal-lg">
             <div className="modal-content">
               <div className="modal-header">
                 <h5 className="modal-title">Create New Team</h5>
-                <button 
-                  type="button" 
-                  className="btn-close"
-                  onClick={() => setShowCreateModal(false)}
-                ></button>
+                <button type="button" className="btn-close" onClick={() => setShowCreateModal(false)}></button>
               </div>
               <form onSubmit={handleCreateTeam}>
                 <div className="modal-body">
@@ -719,84 +610,121 @@ setTeams(prevTeams => [...(Array.isArray(prevTeams) ? prevTeams : []), response.
                           value={newTeam.name}
                           onChange={(e) => setNewTeam({...newTeam, name: e.target.value})}
                           required
+                          maxLength={100}
                         />
                       </div>
-                    </div>
-                    <div className="col-md-6">
                       <div className="mb-3">
-                        <label className="form-label">Max Members</label>
+                        <label className="form-label">Tagline</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={newTeam.tagline}
+                          onChange={(e) => setNewTeam({...newTeam, tagline: e.target.value})}
+                          maxLength={200}
+                        />
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label">Max Team Size</label>
                         <select
                           className="form-select"
-                          value={newTeam.maxMembers}
-                          onChange={(e) => setNewTeam({...newTeam, maxMembers: parseInt(e.target.value)})}
+                          value={newTeam.maxSize}
+                          onChange={(e) => setNewTeam({...newTeam, maxSize: parseInt(e.target.value)})}
                         >
-                          {[2,3,4,5,6,7,8,9,10].map(n => (
-                            <option key={n} value={n}>{n}</option>
+                          {[2,3,4,5,6,7,8,9,10].map(size => (
+                            <option key={size} value={size}>{size} members</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label">Project Category</label>
+                        <select
+                          className="form-select"
+                          value={newTeam.projectCategory}
+                          onChange={(e) => setNewTeam({...newTeam, projectCategory: e.target.value})}
+                        >
+                          <option value="">Select Category</option>
+                          {projectCategories.map(cat => (
+                            <option key={cat} value={cat}>{cat.replace('_', ' ')}</option>
                           ))}
                         </select>
                       </div>
                     </div>
-                  </div>
-                  
-                  <div className="mb-3">
-                    <label className="form-label">Description *</label>
-                    <textarea
-                      className="form-control"
-                      rows="3"
-                      value={newTeam.description}
-                      onChange={(e) => setNewTeam({...newTeam, description: e.target.value})}
-                      required
-                    ></textarea>
-                  </div>
-                  
-                  <div className="mb-3">
-                    <label className="form-label">Team Motto</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={newTeam.motto}
-                      onChange={(e) => setNewTeam({...newTeam, motto: e.target.value})}
-                      placeholder="Optional team motto"
-                    />
-                  </div>
-                  
-                  <div className="row">
                     <div className="col-md-6">
                       <div className="mb-3">
-                        <label className="form-label">Visibility</label>
+                        <label className="form-label">Description *</label>
+                        <textarea
+                          className="form-control"
+                          rows={4}
+                          value={newTeam.description}
+                          onChange={(e) => setNewTeam({...newTeam, description: e.target.value})}
+                          required
+                          maxLength={1000}
+                        />
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label">Communication Channel</label>
                         <select
                           className="form-select"
-                          value={newTeam.visibility}
-                          onChange={(e) => setNewTeam({...newTeam, visibility: e.target.value})}
+                          value={newTeam.communicationChannel}
+                          onChange={(e) => setNewTeam({...newTeam, communicationChannel: e.target.value})}
                         >
-                          <option value="public">Public</option>
-                          <option value="private">Private</option>
-                          <option value="invite_only">Invite Only</option>
+                          <option value="discord">Discord</option>
+                          <option value="slack">Slack</option>
+                          <option value="telegram">Telegram</option>
+                          <option value="whatsapp">WhatsApp</option>
+                          <option value="teams">Microsoft Teams</option>
+                          <option value="other">Other</option>
                         </select>
+                      </div>
+                      <div className="mb-3">
+                        <div className="form-check">
+                          <input
+                            type="checkbox"
+                            className="form-check-input"
+                            id="isPublic"
+                            checked={newTeam.isPublic}
+                            onChange={(e) => setNewTeam({...newTeam, isPublic: e.target.checked})}
+                          />
+                          <label className="form-check-label" htmlFor="isPublic">
+                            Make team public
+                          </label>
+                        </div>
                       </div>
                     </div>
-                    <div className="col-md-6">
-                      <div className="mb-3">
-                        <label className="form-label">Join Method</label>
-                        <select
-                          className="form-select"
-                          value={newTeam.joinMethod}
-                          onChange={(e) => setNewTeam({...newTeam, joinMethod: e.target.value})}
-                        >
-                          <option value="open">Open</option>
-                          <option value="application">Application</option>
-                          <option value="invite_only">Invite Only</option>
-                        </select>
-                      </div>
+                  </div>
+
+                  <div className="mb-3">
+                    <label className="form-label">Required Skills</label>
+                    <div className="input-group mb-2">
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="Add a skill..."
+                        value={skillInput}
+                        onChange={(e) => setSkillInput(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addSkill())}
+                      />
+                      <button type="button" className="btn btn-outline-secondary" onClick={addSkill}>
+                        Add
+                      </button>
+                    </div>
+                    <div>
+                      {newTeam.requiredSkills.map((skill, index) => (
+                        <span key={index} className="badge bg-secondary me-2 mb-2">
+                          {skill.name}
+                          <button
+                            type="button"
+                            className="btn-close btn-close-white ms-2"
+                            style={{fontSize: '0.6rem'}}
+                            onClick={() => removeSkill(index)}
+                          ></button>
+                        </span>
+                      ))}
                     </div>
                   </div>
                 </div>
-               <div className="modal-footer">
-                  <button 
-                    type="button" 
-                    className="btn btn-secondary"
-                    onClick={() => setShowCreateModal(false)}
-                  >
+                <div className="modal-footer">
+                  <button type="button" className="btn btn-secondary" onClick={() => setShowCreateModal(false)}>
                     Cancel
                   </button>
                   <button type="submit" className="btn btn-primary">
@@ -809,52 +737,51 @@ setTeams(prevTeams => [...(Array.isArray(prevTeams) ? prevTeams : []), response.
         </div>
       )}
 
-      {/* Invite Modal */}
+      {/* Invite Member Modal */}
       {showInviteModal && (
-        <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+        <div className="modal show d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
           <div className="modal-dialog">
             <div className="modal-content">
               <div className="modal-header">
-                <h5 className="modal-title">Invite Team Members</h5>
-                <button 
-                  type="button" 
-                  className="btn-close"
-                  onClick={() => setShowInviteModal(false)}
-                ></button>
+                <h5 className="modal-title">Invite Team Member</h5>
+                <button type="button" className="btn-close" onClick={() => setShowInviteModal(false)}></button>
               </div>
-              <div className="modal-body">
-                <div className="mb-3">
-                  <label className="form-label">Invite Link</label>
-                  <div className="input-group">
+              <form onSubmit={handleInviteMember}>
+                <div className="modal-body">
+                  <div className="mb-3">
+                    <label className="form-label">Email Address</label>
                     <input
-                      type="text"
+                      type="email"
                       className="form-control"
-                      value={inviteLink}
-                      readOnly
+                      value={inviteData.email}
+                      onChange={(e) => setInviteData({...inviteData, email: e.target.value})}
+                      required
                     />
-                    <button 
-                      className="btn btn-outline-secondary"
-                      onClick={copyInviteLink}
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label">Role</label>
+                    <select
+                      className="form-select"
+                      value={inviteData.role}
+                      onChange={(e) => setInviteData({...inviteData, role: e.target.value})}
                     >
-                      Copy
-                    </button>
+                      {roleOptions.map(role => (
+                        <option key={role} value={role}>
+                          {role.replace('_', ' ').toUpperCase()}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
-                <div className="alert alert-info">
-                  <small>
-                    <i className="bi bi-info-circle"></i> This link is valid for 24 hours and can be used up to 5 times.
-                  </small>
+                <div className="modal-footer">
+                  <button type="button" className="btn btn-secondary" onClick={() => setShowInviteModal(false)}>
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn btn-primary">
+                    Send Invitation
+                  </button>
                 </div>
-              </div>
-              <div className="modal-footer">
-                <button 
-                  type="button" 
-                  className="btn btn-secondary"
-                  onClick={() => setShowInviteModal(false)}
-                >
-                  Close
-                </button>
-              </div>
+              </form>
             </div>
           </div>
         </div>

@@ -428,4 +428,35 @@ teamSchema.statics.findByHackathonWithFilters = function(hackathonId, filters = 
     .sort({ 'stats.lastActivity': -1 });
 };
 
+
+
+teamSchema.methods.disbandTeam = function(userId) {
+  if (this.leaderId.toString() !== userId.toString()) {
+    throw new Error('Only team leader can disband the team');
+  }
+  
+  if (this.status === 'disbanded') {
+    throw new Error('Team is already disbanded');
+  }
+  
+  this.status = 'disbanded';
+  
+  // Optionally mark all members as left
+  this.members.forEach(member => {
+    if (member.status === 'active') {
+      member.status = 'left';
+    }
+  });
+  
+  return this.save();
+};
+
+teamSchema.methods.deleteTeam = function(userId) {
+  if (this.leaderId.toString() !== userId.toString()) {
+    throw new Error('Only team leader can delete the team');
+  }
+  
+  return this.deleteOne();
+};
+
 module.exports = mongoose.model('Team', teamSchema);

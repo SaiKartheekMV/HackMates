@@ -1,5 +1,5 @@
 // src/services/cacheService.js
-const redis = require('../config/redis');
+const { getRedisClient, safeRedisOperation } = require('../config/redis');
 
 class CacheService {
   constructor() {
@@ -7,31 +7,44 @@ class CacheService {
     this.keyPrefix = 'hackmates:';
   }
 
+  getClient() {
+  const client = getRedisClient();
+  if (!client) {
+    throw new Error('Redis client not available');
+  }
+  return client;
+}
+
   // Generate cache key with prefix
   generateKey(key) {
     return `${this.keyPrefix}${key}`;
   }
 
-  // Set cache with TTL
-  async set(key, value, ttl = this.defaultTTL) {
-    try {
-      const cacheKey = this.generateKey(key);
-      const serializedValue = JSON.stringify(value);
-      
-      if (ttl > 0) {
-        await redis.setEx(cacheKey, ttl, serializedValue);
-      } else {
-        await redis.set(cacheKey, serializedValue);
-      }
-      
-      console.log(`Cache set: ${cacheKey}`);
-      return true;
-    } catch (error) {
-      console.error('Cache set error:', error);
+// Set cache with TTL
+async set(key, value, ttl = this.defaultTTL) {
+  try {
+    const cacheKey = this.generateKey(key);
+    const serializedValue = JSON.stringify(value);
+    
+    const client = getRedisClient();
+    if (!client) {
+      console.warn('Redis not available, skipping cache set');
       return false;
     }
+    
+    if (ttl > 0) {
+      await client.setEx(cacheKey, ttl, serializedValue);
+    } else {
+      await client.set(cacheKey, serializedValue);
+    }
+    
+    console.log(`Cache set: ${cacheKey}`);
+    return true;
+  } catch (error) {
+    console.error('Cache set error:', error);
+    return false;
   }
-
+}
   // Get cache value
   async get(key) {
     try {

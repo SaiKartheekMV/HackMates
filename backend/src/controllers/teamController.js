@@ -778,49 +778,144 @@ class TeamController {
   }
 
   // Get team recommendations for user
-  async getTeamRecommendations(req, res) {
+// Get team recommendations for user
+async getTeamRecommendations(req, res) {
+  try {
+    const { hackathonId } = req.params;
+    const { limit = 10 } = req.query;
+
+    // Debug logging
+    console.log('Team recommendations request:', {
+      hackathonId,
+      limit,
+      userId: req.user?._id,
+      userExists: !!req.user
+    });
+
+    // Check if user is authenticated
+    if (!req.user || !req.user._id) {
+      console.error('User not authenticated or missing user ID');
+      return res.status(401).json({
+        success: false,
+        message: 'User not authenticated'
+      });
+    }
+
+    // Validate hackathonId format
+    if (!hackathonId || !hackathonId.match(/^[0-9a-fA-F]{24}$/)) {
+      console.error('Invalid hackathon ID format:', hackathonId);
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid hackathon ID format'
+      });
+    }
+
+    // Get user profile with error handling
+    let userProfile;
     try {
-      const { hackathonId } = req.params;
-      const { limit = 10 } = req.query;
+      userProfile = await Profile.findOne({ userId: req.user._id });
+      console.log('User profile found:', !!userProfile);
+    } catch (profileError) {
+      console.error('Profile lookup error:', profileError);
+      return res.status(500).json({
+        success: false,
+        message: 'Error retrieving user profile'
+      });
+    }
 
-      // Get user profile
-      const userProfile = await Profile.findOne({ userId: req.user._id });
-      if (!userProfile) {
-        return res.status(400).json({
-          success: false,
-          message: 'Please complete your profile first'
-        });
+    if (!userProfile) {
+      console.log('No profile found for user:', req.user._id);
+      return res.status(400).json({
+        success: false,
+        message: 'Please complete your profile first'
+      });
+    }
+
+    // Check cache with error handling
+    const cacheKey = `team_recommendations:${req.user._id}:${hackathonId}`;
+    let recommendations = null;
+
+    try {
+      if (cacheService && typeof cacheService.get === 'function') {
+        recommendations = await cacheService.get(cacheKey);
+        console.log('Cache lookup completed, found:', !!recommendations);
+      } else {
+        console.warn('Cache service not available, skipping cache lookup');
       }
+    } catch (cacheError) {
+      console.error('Cache lookup error:', cacheError);
+      // Continue without cache - don't fail the request
+    }
 
-      // Check cache
-      const cacheKey = `team_recommendations:${req.user._id}:${hackathonId}`;
-      let recommendations = await cacheService.get(cacheKey);
+    if (!recommendations) {
+      // Get AI recommendations with error handling
+      try {
+        if (!matchmakingService || typeof matchmakingService.getTeamRecommendations !== 'function') {
+          console.error('Matchmaking service not available');
+          return res.status(503).json({
+            success: false,
+            message: 'Team recommendation service is currently unavailable'
+          });
+        }
 
-      if (!recommendations) {
-        // Get AI recommendations
+        console.log('Calling matchmaking service...');
         recommendations = await matchmakingService.getTeamRecommendations(
           req.user._id,
           hackathonId,
           parseInt(limit)
         );
+        console.log('Matchmaking service returned:', recommendations?.length || 0, 'recommendations');
 
-        // Cache for 30 minutes
-        await cacheService.set(cacheKey, recommendations, 1800);
+        // Cache the results if cache service is available
+        try {
+          if (cacheService && typeof cacheService.set === 'function') {
+            await cacheService.set(cacheKey, recommendations, 1800);
+            console.log('Results cached successfully');
+          }
+        } catch (cacheSetError) {
+          console.error('Cache set error:', cacheSetError);
+          // Don't fail the request if caching fails
+        }
+
+      } catch (matchmakingError) {
+        console.error('Matchmaking service error:', matchmakingError);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to generate team recommendations'
+        });
       }
-
-      res.json({
-        success: true,
-        data: { recommendations }
-      });
-
-    } catch (error) {
-      console.error('Team recommendations error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to get team recommendations'
-      });
     }
+
+    // Ensure recommendations is an array
+    if (!Array.isArray(recommendations)) {
+      console.warn('Recommendations is not an array:', typeof recommendations);
+      recommendations = [];
+    }
+
+    console.log('Sending response with', recommendations.length, 'recommendations');
+    
+    res.json({
+      success: true,
+      data: { 
+        recommendations,
+        count: recommendations.length
+      }
+    });
+
+  } catch (error) {
+    console.error('Team recommendations error:', error);
+    console.error('Error stack:', error.stack);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get team recommendations',
+      ...(process.env.NODE_ENV === 'development' && { 
+        error: error.message,
+        stack: error.stack 
+      })
+    });
   }
+}
 
   // Transfer team leadership
   async transferLeadership(req, res) {

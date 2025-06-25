@@ -582,57 +582,119 @@ export const teamAPI = {
   },
 
   // Get team recommendations - matches GET /api/teams/recommendations/:hackathonId
-  getTeamRecommendations: async (hackathonId, params = {}) => {
-    try {
-      if (!hackathonId || !hackathonId.match(/^[0-9a-fA-F]{24}$/)) {
-        throw new Error('Invalid hackathon ID format');
-      }
-      
-      // Clean parameters for recommendations
-      const cleanParams = {};
-      
-      if (params.limit) {
-        const limit = parseInt(params.limit);
-        if (limit >= 1 && limit <= 20) {
-          cleanParams.limit = limit;
-        }
-      }
-      
-      console.log('Requesting team recommendations with params:', cleanParams);
-      const response = await api.get(`/teams/recommendations/${hackathonId}`, { params: cleanParams });
-      return {
-        success: true,
-        data: response.data.teams || response.data.data?.teams || response.data.recommendations || response.data
-      };
-    } catch (error) {
-      console.error('API Error (getTeamRecommendations):', error);
-      console.error('Error response:', error.response?.data);
-      console.error('Error status:', error.response?.status);
-      console.error('Request params that caused error:', params);
-      
-      // Handle 501 errors gracefully for recommendations (when method not implemented)
-      if (error.response?.status === 501) {
-        console.warn('Team recommendations service not implemented yet');
-        return {
-          success: false,
-          data: [],
-          error: 'Team recommendations not available yet'
-        };
-      }
-      
-      // Handle 500 errors gracefully for recommendations
-      if (error.response?.status === 500) {
-        console.warn('Recommendations service temporarily unavailable');
-        return {
-          success: false,
-          data: [],
-          error: 'Recommendations temporarily unavailable'
-        };
-      }
-      
-      throw error;
+getTeamRecommendations: async (hackathonId, params = {}) => {
+  try {
+    // Validate hackathonId before making request
+    if (!hackathonId) {
+      throw new Error('Hackathon ID is required');
     }
-  },
+    
+    if (!hackathonId.match(/^[0-9a-fA-F]{24}$/)) {
+      throw new Error('Invalid hackathon ID format');
+    }
+    
+    // Clean parameters for recommendations
+    const cleanParams = {};
+    
+    if (params.limit) {
+      const limit = parseInt(params.limit);
+      if (limit >= 1 && limit <= 20) {
+        cleanParams.limit = limit;
+      }
+    }
+    
+    console.log('Requesting team recommendations with params:', {
+      hackathonId,
+      cleanParams
+    });
+    
+    const response = await api.get(`/teams/recommendations/${hackathonId}`, { 
+      params: cleanParams,
+      timeout: 10000 // 10 second timeout
+    });
+    
+    console.log('API Response:', response.data);
+    
+    return {
+      success: true,
+      data: response.data.data?.recommendations || 
+            response.data.recommendations || 
+            response.data.teams || 
+            response.data.data?.teams || 
+            response.data.data || 
+            []
+    };
+    
+  } catch (error) {
+    console.error('API Error (getTeamRecommendations):', error);
+    console.error('Error response:', error.response?.data);
+    console.error('Error status:', error.response?.status);
+    console.error('Request params that caused error:', params);
+    console.error('Hackathon ID:', hackathonId);
+    
+    // Handle specific error cases
+    if (error.response?.status === 401) {
+      console.warn('User not authenticated');
+      return {
+        success: false,
+        data: [],
+        error: 'Please log in to get recommendations'
+      };
+    }
+    
+    if (error.response?.status === 400) {
+      const message = error.response.data?.message || 'Bad request';
+      console.warn('Bad request:', message);
+      return {
+        success: false,
+        data: [],
+        error: message
+      };
+    }
+    
+    // Handle 501 errors gracefully for recommendations (when method not implemented)
+    if (error.response?.status === 501) {
+      console.warn('Team recommendations service not implemented yet');
+      return {
+        success: false,
+        data: [],
+        error: 'Team recommendations not available yet'
+      };
+    }
+    
+    // Handle 503 errors (service unavailable)
+    if (error.response?.status === 503) {
+      console.warn('Team recommendations service unavailable');
+      return {
+        success: false,
+        data: [],
+        error: 'Team recommendation service is currently unavailable'
+      };
+    }
+    
+    // Handle 500 errors gracefully for recommendations
+    if (error.response?.status === 500) {
+      console.warn('Recommendations service temporarily unavailable');
+      return {
+        success: false,
+        data: [],
+        error: 'Recommendations temporarily unavailable'
+      };
+    }
+    
+    // Handle network errors
+    if (error.code === 'ECONNABORTED') {
+      return {
+        success: false,
+        data: [],
+        error: 'Request timed out. Please try again.'
+      };
+    }
+    
+    // For other errors, throw to be handled by the calling component
+    throw error;
+  }
+},
 
   // Get team statistics - matches GET /api/teams/:teamId/stats
   getTeamStats: async (teamId) => {

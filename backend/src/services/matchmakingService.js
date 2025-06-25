@@ -207,6 +207,28 @@ class MatchmakingService {
     }
   }
 
+    async getTeamRecommendations(userId, hackathonId, limit = 10) {
+    try {
+      const matches = await this.findMatches(userId, hackathonId, limit);
+      
+      const teamRecommendations = matches.map(match => ({
+        type: 'user_match',
+        userId: match.userId,
+        userInfo: match.userInfo,
+        profile: match.profile,
+        compatibility: match.compatibility,
+        breakdown: match.breakdown,
+        recommendationReason: `${Math.round(match.compatibility * 100)}% compatibility match`
+      }));
+
+      return teamRecommendations;
+    } catch (error) {
+      console.error('Error getting team recommendations:', error);
+      throw error;
+    }
+  }
+
+
   // Update matches for a user (called after profile changes)
   async updateUserMatches(userId) {
     try {

@@ -1,109 +1,21 @@
 const express = require('express');
 const router = express.Router();
-const teamController = require('../controllers/teamController');
-const { authenticateToken } = require('../middleware/auth');
-const { 
-  apiLimiter, 
-  authLimiter, 
-  uploadLimiter, 
-  createTeamLimiter 
-} = require('../middleware/rateLimiter');
-const { body, param, query } = require('express-validator');
-const { validationResult } = require('express-validator');
+const { body } = require('express-validator');
+const { authenticateToken: auth } = require('../middleware/auth');
+const {
+  getTeamsByHackathon,
+  getMyTeams,
+  getTeam,
+  createTeam,
+  joinTeam,
+  leaveTeam,
+  updateTeam,
+  deleteTeam,
+  applyToTeam,
+  handleApplication
+} = require('../controllers/teamController');
 
-// Create validateRequest function since it's not properly exported
-const validateRequest = (req, res, next) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({
-      success: false,
-      message: 'Validation failed',
-      errors: errors.array()
-    });
-  }
-  next();
-};
-
-// Create placeholder controller methods if they don't exist
-const safeTeamController = {
-  createTeam: teamController.createTeam || ((req, res) => {
-    res.status(501).json({ success: false, message: 'createTeam method not implemented' });
-  }),
-  getUserTeams: teamController.getUserTeams || ((req, res) => {
-    res.status(501).json({ success: false, message: 'getUserTeams method not implemented' });
-  }),
-  getTeam: teamController.getTeam || ((req, res) => {
-    res.status(501).json({ success: false, message: 'getTeam method not implemented' });
-  }),
-  updateTeam: teamController.updateTeam || ((req, res) => {
-    res.status(501).json({ success: false, message: 'updateTeam method not implemented' });
-  }),
-  deleteTeam: teamController.deleteTeam || ((req, res) => {
-    res.status(501).json({ success: false, message: 'deleteTeam method not implemented' });
-  }),
-  joinTeam: teamController.joinTeam || ((req, res) => {
-    res.status(501).json({ success: false, message: 'joinTeam method not implemented' });
-  }),
-  leaveTeam: teamController.leaveTeam || ((req, res) => {
-    res.status(501).json({ success: false, message: 'leaveTeam method not implemented' });
-  }),
-  inviteToTeam: teamController.inviteToTeam || ((req, res) => {
-    res.status(501).json({ success: false, message: 'inviteToTeam method not implemented' });
-  }),
-  kickMember: teamController.kickMember || ((req, res) => {
-    res.status(501).json({ success: false, message: 'kickMember method not implemented' });
-  }),
-  transferLeadership: teamController.transferLeadership || ((req, res) => {
-    res.status(501).json({ success: false, message: 'transferLeadership method not implemented' });
-  }),
-  updateMemberPermissions: teamController.updateMemberPermissions || ((req, res) => {
-    res.status(501).json({ success: false, message: 'updateMemberPermissions method not implemented' });
-  }),
-  getHackathonTeams: teamController.getHackathonTeams || ((req, res) => {
-    res.status(501).json({ success: false, message: 'getHackathonTeams method not implemented' });
-  }),
-  getTeamRecommendations: teamController.getTeamRecommendations || ((req, res) => {
-    res.status(501).json({ success: false, message: 'getTeamRecommendations method not implemented' });
-  }),
-  getTeamStats: teamController.getTeamStats || ((req, res) => {
-    res.status(501).json({ success: false, message: 'getTeamStats method not implemented' });
-  })
-};
-
-// Apply authentication to all team routes
-router.use(authenticateToken);
-
-// Additional rate limiters for team-specific actions
-const rateLimit = require('express-rate-limit');
-
-const joinLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 10, // Max 10 join attempts per window
-  message: {
-    success: false,
-    message: 'Too many join attempts. Please try again later.'
-  }
-});
-
-const inviteLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 20, // Max 20 invitations per window
-  message: {
-    success: false,
-    message: 'Too many invitations sent. Please try again later.'
-  }
-});
-
-const updateLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
-  max: 5, // Max 5 updates per minute
-  message: {
-    success: false,
-    message: 'Too many update attempts. Please try again later.'
-  }
-});
-
-// Validation schemas
+// Validation middleware
 const createTeamValidation = [
   body('name')
     .trim()
@@ -111,439 +23,363 @@ const createTeamValidation = [
     .withMessage('Team name must be between 3 and 100 characters'),
   body('description')
     .trim()
-    .isLength({ min: 10, max: 1000 })
-    .withMessage('Description must be between 10 and 1000 characters'),
-  body('hackathonId')
+    .isLength({ min: 10, max: 500 })
+    .withMessage('Description must be between 10 and 500 characters'),
+  body('hackathon')
     .isMongoId()
-    .withMessage('Invalid hackathon ID'),
+    .withMessage('Valid hackathon ID is required'),
   body('maxMembers')
+    .optional()
     .isInt({ min: 2, max: 10 })
-    .withMessage('Team size must be between 2 and 10 members'),
+    .withMessage('Max members must be between 2 and 10'),
   body('requiredSkills')
     .optional()
     .isArray()
     .withMessage('Required skills must be an array'),
-  body('requiredSkills.*.skill')
-    .optional()
-    .trim()
-    .isLength({ min: 2, max: 50 })
-    .withMessage('Skill name must be between 2 and 50 characters'),
-  body('requiredSkills.*.priority')
-    .optional()
-    .isIn(['low', 'medium', 'high', 'critical'])
-    .withMessage('Priority must be one of: low, medium, high, critical'),
-  body('preferredRoles')
-    .optional()
-    .isArray()
-    .withMessage('Preferred roles must be an array'),
-  body('preferredRoles.*.role')
-    .optional()
-    .isIn(['developer', 'designer', 'data_scientist', 'product_manager', 'marketing', 'other'])
-    .withMessage('Invalid role specified'),
-  body('preferredRoles.*.count')
-    .optional()
-    .isInt({ min: 1 })
-    .withMessage('Role count must be at least 1'),
-  body('project.name')
-    .optional()
-    .trim()
-    .isLength({ max: 150 })
-    .withMessage('Project name cannot exceed 150 characters'),
-  body('project.category')
-    .optional()
-    .isIn(['web', 'mobile', 'ai_ml', 'blockchain', 'iot', 'ar_vr', 'gaming', 'fintech', 'healthtech', 'edtech', 'other'])
-    .withMessage('Invalid project category'),
-  body('project.repositoryUrl')
-    .optional()
-    .isURL()
-    .withMessage('Repository URL must be valid'),
-  body('communication.primaryChannel')
-    .optional()
-    .isIn(['discord', 'slack', 'telegram', 'whatsapp', 'teams', 'other'])
-    .withMessage('Invalid communication channel'),
-  body('settings.isPublic')
-    .optional()
-    .isBoolean()
-    .withMessage('isPublic must be a boolean'),
-  body('settings.allowDirectJoin')
-    .optional()
-    .isBoolean()
-    .withMessage('allowDirectJoin must be a boolean'),
-  body('settings.requireApproval')
-    .optional()
-    .isBoolean()
-    .withMessage('requireApproval must be a boolean'),
-  body('location.preference')
-    .optional()
-    .isIn(['remote', 'hybrid', 'in_person'])
-    .withMessage('Invalid location preference'),
   body('tags')
     .optional()
-    .isArray({ max: 10 })
-    .withMessage('Maximum 10 tags allowed'),
-  body('tags.*')
+    .isArray()
+    .withMessage('Tags must be an array'),
+  body('contactInfo.email')
     .optional()
-    .trim()
-    .isLength({ min: 2, max: 30 })
-    .withMessage('Each tag must be between 2 and 30 characters')
+    .isEmail()
+    .withMessage('Valid email is required for contact info'),
+  body('applicationRequired')
+    .optional()
+    .isBoolean()
+    .withMessage('Application required must be a boolean')
 ];
 
 const updateTeamValidation = [
-  param('teamId').isMongoId().withMessage('Invalid team ID'),
-  body('name')
-    .optional()
-    .trim()
-    .isLength({ min: 3, max: 100 })
-    .withMessage('Team name must be between 3 and 100 characters'),
   body('description')
     .optional()
     .trim()
-    .isLength({ min: 10, max: 1000 })
-    .withMessage('Description must be between 10 and 1000 characters'),
+    .isLength({ min: 10, max: 500 })
+    .withMessage('Description must be between 10 and 500 characters'),
   body('maxMembers')
     .optional()
     .isInt({ min: 2, max: 10 })
-    .withMessage('Team size must be between 2 and 10 members')
-];
-
-const teamIdValidation = [
-  param('teamId').isMongoId().withMessage('Invalid team ID')
-];
-
-const hackathonIdValidation = [
-  param('hackathonId').isMongoId().withMessage('Invalid hackathon ID')
-];
-
-const joinTeamValidation = [
-  param('teamId').isMongoId().withMessage('Invalid team ID'),
-  body('role')
+    .withMessage('Max members must be between 2 and 10'),
+  body('requiredSkills')
     .optional()
-    .isIn(['developer', 'designer', 'data_scientist', 'product_manager', 'marketing', 'other'])
-    .withMessage('Invalid role specified'),
+    .isArray()
+    .withMessage('Required skills must be an array'),
+  body('tags')
+    .optional()
+    .isArray()
+    .withMessage('Tags must be an array'),
+  body('status')
+    .optional()
+    .isIn(['open', 'closed'])
+    .withMessage('Status must be either open or closed'),
+  body('contactInfo.email')
+    .optional()
+    .isEmail()
+    .withMessage('Valid email is required for contact info')
+];
+
+const applicationValidation = [
   body('message')
     .optional()
     .trim()
     .isLength({ max: 500 })
-    .withMessage('Message cannot exceed 500 characters')
+    .withMessage('Application message must not exceed 500 characters')
 ];
 
-const inviteValidation = [
-  param('teamId').isMongoId().withMessage('Invalid team ID'),
-  body('userId').isMongoId().withMessage('Invalid user ID'),
-  body('role')
-    .optional()
-    .isIn(['developer', 'designer', 'data_scientist', 'product_manager', 'marketing', 'other'])
-    .withMessage('Invalid role specified'),
-  body('message')
-    .optional()
-    .trim()
-    .isLength({ max: 500 })
-    .withMessage('Message cannot exceed 500 characters')
+const handleApplicationValidation = [
+  body('status')
+    .isIn(['accepted', 'rejected'])
+    .withMessage('Status must be either accepted or rejected')
 ];
 
-const transferLeadershipValidation = [
-  param('teamId').isMongoId().withMessage('Invalid team ID'),
-  body('newLeaderId').isMongoId().withMessage('Invalid user ID')
-];
+// @route   GET /api/hackathons/:hackathonId/teams
+// @desc    Get all teams for a specific hackathon
+// @access  Public
+router.get('/hackathons/:hackathonId/teams', getTeamsByHackathon);
 
-const updatePermissionsValidation = [
-  param('teamId').isMongoId().withMessage('Invalid team ID'),
-  param('userId').isMongoId().withMessage('Invalid user ID'),
-  body('permissions.canInvite')
-    .optional()
-    .isBoolean()
-    .withMessage('canInvite must be a boolean'),
-  body('permissions.canKick')
-    .optional()
-    .isBoolean()
-    .withMessage('canKick must be a boolean'),
-  body('permissions.canEditTeam')
-    .optional()
-    .isBoolean()
-    .withMessage('canEditTeam must be a boolean')
-];
+// @route   GET /api/teams/my
+// @desc    Get current user's teams
+// @access  Private
+console.log('getMyTeams:', typeof getMyTeams);
+router.get('/my', auth, getMyTeams);
 
-const paginationValidation = [
-  query('page')
-    .optional()
-    .isInt({ min: 1 })
-    .withMessage('Page must be a positive integer'),
-  query('limit')
-    .optional()
-    .isInt({ min: 1, max: 50 })
-    .withMessage('Limit must be between 1 and 50'),
-  query('sortBy')
-    .optional()
-    .isIn(['lastActivity', 'newest', 'oldest', 'mostViewed', 'teamSize'])
-    .withMessage('Invalid sort option')
-];
-
-// Team CRUD routes
-/**
- * @route   POST /api/teams
- * @desc    Create a new team
- * @access  Private
- */
-router.post(
-  '/',
-  createTeamLimiter,
-  createTeamValidation,
-  validateRequest,
-  safeTeamController.createTeam
-);
-
-/**
- * @route   GET /api/teams/my
- * @desc    Get current user's teams
- * @access  Private
- */
-router.get(
-  '/my',
-  [
-    query('status')
-      .optional()
-      .isIn(['forming', 'complete', 'competing', 'finished', 'disbanded'])
-      .withMessage('Invalid status'),
-    query('hackathonId')
-      .optional()
-      .isMongoId()
-      .withMessage('Invalid hackathon ID')
-  ],
-  validateRequest,
-  safeTeamController.getUserTeams
-);
-
-/**
- * @route   GET /api/teams/:teamId
- * @desc    Get team details
- * @access  Private
- */
-router.get(
-  '/:teamId',
-  [
-    ...teamIdValidation,
-    query('detailed')
-      .optional()
-      .isBoolean()
-      .withMessage('detailed must be a boolean')
-  ],
-  validateRequest,
-  safeTeamController.getTeam
-);
-
-/**
- * @route   PUT /api/teams/:teamId
- * @desc    Update team information
- * @access  Private (Team leader or members with edit permission)
- */
-router.put(
-  '/:teamId',
-  updateLimiter,
-  updateTeamValidation,
-  validateRequest,
-  safeTeamController.updateTeam
-);
-
-/**
- * @route   DELETE /api/teams/:teamId
- * @desc    Disband team
- * @access  Private (Team leader only)
- */
-router.delete(
-  '/:teamId',
-  teamIdValidation,
-  validateRequest,
-  safeTeamController.deleteTeam
-);
-
-// Team membership routes
-/**
- * @route   POST /api/teams/:teamId/join
- * @desc    Join a team or request to join
- * @access  Private
- */
-router.post(
-  '/:teamId/join',
-  joinLimiter,
-  joinTeamValidation,
-  validateRequest,
-  safeTeamController.joinTeam
-);
-
-/**
- * @route   POST /api/teams/:teamId/leave
- * @desc    Leave a team
- * @access  Private
- */
-router.post(
-  '/:teamId/leave',
-  [
-    ...teamIdValidation,
-    body('transferTo')
-      .optional()
-      .isMongoId()
-      .withMessage('Invalid user ID for leadership transfer')
-  ],
-  validateRequest,
-  safeTeamController.leaveTeam
-);
-
-/**
- * @route   POST /api/teams/:teamId/invite
- * @desc    Invite user to team
- * @access  Private (Team leader or members with invite permission)
- */
-router.post(
-  '/:teamId/invite',
-  inviteLimiter,
-  inviteValidation,
-  validateRequest,
-  safeTeamController.inviteToTeam
-);
-
-/**
- * @route   DELETE /api/teams/:teamId/members/:userId
- * @desc    Remove/kick member from team
- * @access  Private (Team leader or members with kick permission)
- */
-router.delete(
-  '/:teamId/members/:userId',
-  [
-    param('teamId').isMongoId().withMessage('Invalid team ID'),
-    param('userId').isMongoId().withMessage('Invalid user ID'),
-    body('reason')
-      .optional()
-      .trim()
-      .isLength({ max: 200 })
-      .withMessage('Reason cannot exceed 200 characters')
-  ],
-  validateRequest,
-  safeTeamController.kickMember
-);
-
-// Team management routes
-/**
- * @route   POST /api/teams/:teamId/transfer-leadership
- * @desc    Transfer team leadership
- * @access  Private (Team leader only)
- */
-router.post(
-  '/:teamId/transfer-leadership',
-  transferLeadershipValidation,
-  validateRequest,
-  safeTeamController.transferLeadership
-);
-
-/**
- * @route   PUT /api/teams/:teamId/members/:userId/permissions
- * @desc    Update member permissions
- * @access  Private (Team leader only)
- */
-router.put(
-  '/:teamId/members/:userId/permissions',
-  updatePermissionsValidation,
-  validateRequest,
-  safeTeamController.updateMemberPermissions
-);
-
-// Discovery and search routes
-/**
- * @route   GET /api/teams/hackathon/:hackathonId
- * @desc    Get teams for a specific hackathon with filters
- * @access  Private
- */
-router.get(
-  '/hackathon/:hackathonId',
-  [
-    ...hackathonIdValidation,
-    ...paginationValidation,
-    query('status')
-      .optional()
-      .isIn(['forming', 'complete', 'competing', 'finished'])
-      .withMessage('Invalid status'),
-    query('skills')
-      .optional()
-      .custom((value) => {
-        if (typeof value === 'string') {
-          const skills = value.split(',');
-          return skills.every(skill => skill.trim().length >= 2);
-        }
-        return false;
-      })
-      .withMessage('Skills must be comma-separated strings with at least 2 characters each'),
-    query('hasOpenings')
-      .optional()
-      .isBoolean()
-      .withMessage('hasOpenings must be a boolean'),
-    query('location')
-      .optional()
-      .isIn(['remote', 'hybrid', 'in_person'])
-      .withMessage('Invalid location preference'),
-    query('search')
-      .optional()
-      .trim()
-      .isLength({ min: 2, max: 100 })
-      .withMessage('Search query must be between 2 and 100 characters')
-  ],
-  validateRequest,
-  safeTeamController.getHackathonTeams
-);
-
-/**
- * @route   GET /api/teams/recommendations/:hackathonId
- * @desc    Get AI-powered team recommendations for user
- * @access  Private
- */
-router.get(
-  '/recommendations/:hackathonId',
-  [
-    ...hackathonIdValidation,
-    query('limit')
-      .optional()
-      .isInt({ min: 1, max: 20 })
-      .withMessage('Limit must be between 1 and 20')
-  ],
-  validateRequest,
-  safeTeamController.getTeamRecommendations
-);
-
-// Analytics routes
-/**
- * @route   GET /api/teams/:teamId/stats
- * @desc    Get team statistics and analytics
- * @access  Private (Team members only)
- */
-router.get(
-  '/:teamId/stats',
-  teamIdValidation,
-  validateRequest,
-  safeTeamController.getTeamStats
-);
-
-// Global error handler for team routes
-router.use((error, req, res, next) => {
-  console.error('Team route error:', error);
-  
-  if (error.name === 'ValidationError') {
-    return res.status(400).json({
-      success: false,
-      message: 'Validation failed',
-      errors: Object.values(error.errors).map(err => err.message)
+// @route   GET /api/teams/search
+// @desc    Search teams across all hackathons
+// @access  Public
+router.get('/search', async (req, res) => {
+  try {
+    const { q, skills, hackathon, page = 1, limit = 12 } = req.query;
+    const Team = require('../models/Team');
+    
+    let query = {};
+    
+    // Text search
+    if (q) {
+      query.$or = [
+        { name: { $regex: q, $options: 'i' } },
+        { description: { $regex: q, $options: 'i' } },
+        { tags: { $in: [new RegExp(q, 'i')] } }
+      ];
+    }
+    
+    // Skills filter
+    if (skills) {
+      const skillArray = skills.split(',').map(skill => skill.trim());
+      query['requiredSkills.skill'] = { $in: skillArray };
+    }
+    
+    // Hackathon filter
+    if (hackathon) {
+      query.hackathon = hackathon;
+    }
+    
+    // Only show open teams
+    query.status = 'open';
+    
+    const skip = (page - 1) * limit;
+    const totalTeams = await Team.countDocuments(query);
+    
+    const teams = await Team.find(query)
+      .populate('leader', 'name email profilePicture skills')
+      .populate('members.user', 'name email profilePicture skills')
+      .populate('hackathon', 'name startDate endDate')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+    
+    res.json({
+      success: true,
+      data: teams,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalTeams / limit),
+        totalTeams,
+        hasNext: page < Math.ceil(totalTeams / limit),
+        hasPrev: page > 1
+      }
     });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Server Error' });
   }
-  
-  if (error.name === 'CastError') {
-    return res.status(400).json({
-      success: false,
-      message: 'Invalid ID format'
-    });
-  }
-  
-  res.status(500).json({
-    success: false,
-    message: 'Internal server error',
-    error: process.env.NODE_ENV === 'development' ? error.message : undefined
-  });
 });
+
+
+
+// @route   GET /api/teams/:id
+// @desc    Get single team by ID
+// @access  Public
+router.get('/:id', getTeam);
+
+// @route   POST /api/teams
+// @desc    Create a new team
+// @access  Private
+router.post('/', auth, createTeamValidation, createTeam);
+
+// @route   POST /api/teams/:id/join
+// @desc    Join a team
+// @access  Private
+router.post('/:id/join', auth, joinTeam);
+
+// @route   POST /api/teams/:id/leave
+// @desc    Leave a team
+// @access  Private
+router.post('/:id/leave', auth, leaveTeam);
+
+// @route   PUT /api/teams/:id
+// @desc    Update team details
+// @access  Private (Team Leader only)
+router.put('/:id', auth, updateTeamValidation, updateTeam);
+
+// @route   DELETE /api/teams/:id
+// @desc    Delete a team
+// @access  Private (Team Leader only)
+router.delete('/:id', auth, deleteTeam);
+
+// @route   POST /api/teams/:id/apply
+// @desc    Apply to join a team
+// @access  Private
+router.post('/:id/apply', auth, applicationValidation, applyToTeam);
+
+// @route   PUT /api/teams/:id/applications/:applicationId
+// @desc    Handle team application (accept/reject)
+// @access  Private (Team Leader only)
+router.put('/:id/applications/:applicationId', auth, handleApplicationValidation, handleApplication);
+
+// Additional utility routes
+
+// @route   GET /api/teams/:id/members
+// @desc    Get team members
+// @access  Public
+router.get('/:id/members', async (req, res) => {
+  try {
+    const Team = require('../models/Team');
+    const team = await Team.findById(req.params.id)
+      .select('members leader')
+      .populate('leader', 'name email profilePicture skills experience')
+      .populate('members.user', 'name email profilePicture skills experience');
+    
+    if (!team) {
+      return res.status(404).json({ success: false, message: 'Team not found' });
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        leader: team.leader,
+        members: team.members
+      }
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Server Error' });
+  }
+});
+
+// @route   GET /api/teams/:id/applications
+// @desc    Get team applications (Team Leader only)
+// @access  Private
+router.get('/:id/applications', auth, async (req, res) => {
+  try {
+    const Team = require('../models/Team');
+    const team = await Team.findById(req.params.id)
+      .select('applications leader')
+      .populate('applications.user', 'name email profilePicture skills experience');
+    
+    if (!team) {
+      return res.status(404).json({ success: false, message: 'Team not found' });
+    }
+    
+    // Check if user is team leader
+    if (team.leader.toString() !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only team leader can view applications'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: team.applications
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Server Error' });
+  }
+});
+
+// @route   POST /api/teams/:id/kick/:userId
+// @desc    Remove member from team (Team Leader only)
+// @access  Private
+router.post('/:id/kick/:userId', auth, async (req, res) => {
+  try {
+    const Team = require('../models/Team');
+    const team = await Team.findById(req.params.id);
+    
+    if (!team) {
+      return res.status(404).json({ success: false, message: 'Team not found' });
+    }
+    
+    // Check if user is team leader
+    if (team.leader.toString() !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only team leader can remove members'
+      });
+    }
+    
+    // Cannot kick the leader
+    if (team.leader.toString() === req.params.userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot remove team leader'
+      });
+    }
+    
+    // Remove member
+    await team.removeMember(req.params.userId);
+    
+    // Return updated team
+    const updatedTeam = await Team.findById(team._id)
+      .populate('leader', 'name email profilePicture skills')
+      .populate('members.user', 'name email profilePicture skills')
+      .populate('hackathon', 'name startDate endDate');
+    
+    res.json({
+      success: true,
+      data: updatedTeam,
+      message: 'Member removed successfully'
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Server Error' });
+  }
+});
+
+// @route   POST /api/teams/:id/transfer-leadership/:userId
+// @desc    Transfer team leadership (Team Leader only)
+// @access  Private
+router.post('/:id/transfer-leadership/:userId', auth, async (req, res) => {
+  try {
+    const Team = require('../models/Team');
+    const team = await Team.findById(req.params.id);
+    
+    if (!team) {
+      return res.status(404).json({ success: false, message: 'Team not found' });
+    }
+    
+    // Check if user is current team leader
+    if (team.leader.toString() !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only current team leader can transfer leadership'
+      });
+    }
+    
+    // Check if new leader is a team member
+    const newLeader = team.members.find(member => 
+      member.user.toString() === req.params.userId
+    );
+    
+    if (!newLeader) {
+      return res.status(400).json({
+        success: false,
+        message: 'New leader must be a team member'
+      });
+    }
+    
+    // Update leadership
+    const oldLeaderId = team.leader;
+    team.leader = req.params.userId;
+    
+    // Update member roles
+    team.members.forEach(member => {
+      if (member.user.toString() === req.params.userId) {
+        member.role = 'leader';
+      } else if (member.user.toString() === oldLeaderId.toString()) {
+        member.role = 'member';
+      }
+    });
+    
+    await team.save();
+    
+    // Return updated team
+    const updatedTeam = await Team.findById(team._id)
+      .populate('leader', 'name email profilePicture skills')
+      .populate('members.user', 'name email profilePicture skills')
+      .populate('hackathon', 'name startDate endDate');
+    
+    res.json({
+      success: true,
+      data: updatedTeam,
+      message: 'Leadership transferred successfully'
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Server Error' });
+  }
+});
+
+
 
 module.exports = router;

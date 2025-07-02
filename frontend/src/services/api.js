@@ -125,23 +125,28 @@ export const teamAPI = {
 
       console.log('Sending team data:', teamData);
       
-      // Clean the data before sending
+      // Clean the data to match backend validation
       const cleanTeamData = {
-        ...teamData,
         name: teamData.name?.trim(),
         description: teamData.description?.trim(),
-        // Ensure arrays are properly formatted
+        hackathon: teamData.hackathon || teamData.hackathonId, // Backend expects 'hackathon' field
+        maxMembers: teamData.maxMembers ? parseInt(teamData.maxMembers) : 4,
         requiredSkills: teamData.requiredSkills || [],
-        preferredRoles: teamData.preferredRoles || [],
         tags: teamData.tags || [],
-        // Ensure maxMembers is a number
-        maxMembers: teamData.maxMembers ? parseInt(teamData.maxMembers) : 4
+        applicationRequired: teamData.applicationRequired || false
       };
+
+      // Add contact info if provided
+      if (teamData.contactInfo?.email) {
+        cleanTeamData.contactInfo = {
+          email: teamData.contactInfo.email
+        };
+      }
 
       const response = await api.post('/teams', cleanTeamData);
       return {
         success: true,
-        data: response.data.team || response.data.data?.team || response.data
+        data: response.data.data || response.data.team || response.data
       };
     } catch (error) {
       console.error('API Error (createTeam):', error);
@@ -173,21 +178,10 @@ export const teamAPI = {
   // Get current user's teams - matches GET /api/teams/my
   getMyTeams: async (params = {}) => {
     try {
-      // Clean params to match backend validation
-      const cleanParams = {};
-      
-      if (params.status && ['forming', 'complete', 'competing', 'finished', 'disbanded'].includes(params.status)) {
-        cleanParams.status = params.status;
-      }
-      
-      if (params.hackathonId && params.hackathonId.match(/^[0-9a-fA-F]{24}$/)) {
-        cleanParams.hackathonId = params.hackathonId;
-      }
-      
-      const response = await api.get('/teams/my', { params: cleanParams });
+      const response = await api.get('/teams/my', { params });
       return {
         success: true,
-        data: response.data.teams || response.data.data?.teams || response.data
+        data: response.data.data || response.data.teams || response.data
       };
     } catch (error) {
       console.error('API Error (getMyTeams):', error);
@@ -197,80 +191,67 @@ export const teamAPI = {
     }
   },
 
-  // Get team by ID - matches GET /api/teams/:teamId
-  getTeamById: async (teamId, params = {}) => {
+  // Get team by ID - matches GET /api/teams/:id
+  getTeamById: async (teamId) => {
     try {
       if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
         throw new Error('Invalid team ID format');
       }
       
-      // Clean params
-      const cleanParams = {};
-      if (params.detailed !== undefined) {
-        cleanParams.detailed = params.detailed === true || params.detailed === 'true';
-      }
-      
-      const response = await api.get(`/teams/${teamId}`, { params: cleanParams });
+      const response = await api.get(`/teams/${teamId}`);
       return {
         success: true,
-        data: response.data.team || response.data.data?.team || response.data
+        data: response.data.data || response.data.team || response.data
       };
     } catch (error) {
       console.error('API Error (getTeamById):', error);
       console.error('Error response:', error.response?.data);
       console.error('Error status:', error.response?.status);
+
+      if (error.response?.status === 404) {
+        throw new Error('Team not found');
+      }
+
       throw error;
     }
   },
 
-  // Update team - matches PUT /api/teams/:teamId
+  // Update team - matches PUT /api/teams/:id
   updateTeam: async (teamId, teamData) => {
     try {
       if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
         throw new Error('Invalid team ID format');
       }
       
-      // Clean the data before sending - only include fields that can be updated
+      // Clean the data to match backend validation
       const cleanTeamData = {};
       
-      if (teamData.name !== undefined) {
-        cleanTeamData.name = teamData.name?.trim();
-      }
       if (teamData.description !== undefined) {
         cleanTeamData.description = teamData.description?.trim();
       }
       if (teamData.maxMembers !== undefined) {
         cleanTeamData.maxMembers = parseInt(teamData.maxMembers);
       }
-      
-      // Include other updatable fields if they exist
       if (teamData.requiredSkills !== undefined) {
         cleanTeamData.requiredSkills = teamData.requiredSkills || [];
-      }
-      if (teamData.preferredRoles !== undefined) {
-        cleanTeamData.preferredRoles = teamData.preferredRoles || [];
       }
       if (teamData.tags !== undefined) {
         cleanTeamData.tags = teamData.tags || [];
       }
-      if (teamData.project !== undefined) {
-        cleanTeamData.project = teamData.project;
+      if (teamData.status !== undefined) {
+        cleanTeamData.status = teamData.status; // 'open' or 'closed'
       }
-      if (teamData.communication !== undefined) {
-        cleanTeamData.communication = teamData.communication;
-      }
-      if (teamData.settings !== undefined) {
-        cleanTeamData.settings = teamData.settings;
-      }
-      if (teamData.location !== undefined) {
-        cleanTeamData.location = teamData.location;
+      if (teamData.contactInfo?.email !== undefined) {
+        cleanTeamData.contactInfo = {
+          email: teamData.contactInfo.email
+        };
       }
 
       console.log('Updating team with data:', cleanTeamData);
       const response = await api.put(`/teams/${teamId}`, cleanTeamData);
       return {
         success: true,
-        data: response.data.team || response.data.data?.team || response.data
+        data: response.data.data || response.data.team || response.data
       };
     } catch (error) {
       console.error('API Error (updateTeam):', error);
@@ -284,13 +265,17 @@ export const teamAPI = {
           throw new Error(`Validation failed: ${validationErrors.map(err => err.msg || err.message || err).join(', ')}`);
         }
         throw new Error(errorMessage);
+      } else if (error.response?.status === 403) {
+        throw new Error('Only team leader can update team details');
+      } else if (error.response?.status === 404) {
+        throw new Error('Team not found');
       }
       
       throw error;
     }
   },
 
-  // Delete/disband team - matches DELETE /api/teams/:teamId
+  // Delete team - matches DELETE /api/teams/:id
   deleteTeam: async (teamId) => {
     try {
       if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
@@ -305,29 +290,25 @@ export const teamAPI = {
       console.error('API Error (deleteTeam):', error);
       console.error('Error response:', error.response?.data);
       console.error('Error status:', error.response?.status);
+
+      if (error.response?.status === 403) {
+        throw new Error('Only team leader can delete the team');
+      } else if (error.response?.status === 404) {
+        throw new Error('Team not found');
+      }
+
       throw error;
     }
   },
 
-  // Join team - matches POST /api/teams/:teamId/join
-  joinTeam: async (teamId, joinData = {}) => {
+  // Join team - matches POST /api/teams/:id/join
+  joinTeam: async (teamId) => {
     try {
       if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
         throw new Error('Invalid team ID format');
       }
       
-      // Clean join data
-      const cleanJoinData = {};
-      
-      if (joinData.role && ['developer', 'designer', 'data_scientist', 'product_manager', 'marketing', 'other'].includes(joinData.role)) {
-        cleanJoinData.role = joinData.role;
-      }
-      
-      if (joinData.message && joinData.message.trim()) {
-        cleanJoinData.message = joinData.message.trim();
-      }
-      
-      const response = await api.post(`/teams/${teamId}/join`, cleanJoinData);
+      const response = await api.post(`/teams/${teamId}/join`);
       return {
         success: true,
         data: response.data
@@ -336,25 +317,25 @@ export const teamAPI = {
       console.error('API Error (joinTeam):', error);
       console.error('Error response:', error.response?.data);
       console.error('Error status:', error.response?.status);
+
+      if (error.response?.status === 400) {
+        throw new Error(error.response.data?.message || 'Cannot join team');
+      } else if (error.response?.status === 404) {
+        throw new Error('Team not found');
+      }
+
       throw error;
     }
   },
 
-  // Leave team - matches POST /api/teams/:teamId/leave
-  leaveTeam: async (teamId, leaveData = {}) => {
+  // Leave team - matches POST /api/teams/:id/leave
+  leaveTeam: async (teamId) => {
     try {
       if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
         throw new Error('Invalid team ID format');
       }
       
-      // Clean leave data
-      const cleanLeaveData = {};
-      
-      if (leaveData.transferTo && leaveData.transferTo.match(/^[0-9a-fA-F]{24}$/)) {
-        cleanLeaveData.transferTo = leaveData.transferTo;
-      }
-      
-      const response = await api.post(`/teams/${teamId}/leave`, cleanLeaveData);
+      const response = await api.post(`/teams/${teamId}/leave`);
       return {
         success: true,
         data: response.data
@@ -363,204 +344,98 @@ export const teamAPI = {
       console.error('API Error (leaveTeam):', error);
       console.error('Error response:', error.response?.data);
       console.error('Error status:', error.response?.status);
+
+      if (error.response?.status === 400) {
+        throw new Error(error.response.data?.message || 'Cannot leave team');
+      } else if (error.response?.status === 404) {
+        throw new Error('Team not found');
+      }
+
       throw error;
     }
   },
 
-  // Invite user to team - matches POST /api/teams/:teamId/invite
-  inviteToTeam: async (teamId, inviteData) => {
+  // Apply to team - matches POST /api/teams/:id/apply
+  applyToTeam: async (teamId, applicationData = {}) => {
     try {
       if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
         throw new Error('Invalid team ID format');
       }
       
-      if (!inviteData.userId || !inviteData.userId.match(/^[0-9a-fA-F]{24}$/)) {
-        throw new Error('Invalid user ID format');
+      // Clean application data
+      const cleanApplicationData = {};
+      
+      if (applicationData.message && applicationData.message.trim()) {
+        cleanApplicationData.message = applicationData.message.trim();
       }
       
-      // Clean invite data
-      const cleanInviteData = {
-        userId: inviteData.userId
-      };
-      
-      if (inviteData.role && ['developer', 'designer', 'data_scientist', 'product_manager', 'marketing', 'other'].includes(inviteData.role)) {
-        cleanInviteData.role = inviteData.role;
-      }
-      
-      if (inviteData.message && inviteData.message.trim()) {
-        cleanInviteData.message = inviteData.message.trim();
-      }
-      
-      const response = await api.post(`/teams/${teamId}/invite`, cleanInviteData);
+      const response = await api.post(`/teams/${teamId}/apply`, cleanApplicationData);
       return {
         success: true,
         data: response.data
       };
     } catch (error) {
-      console.error('API Error (inviteToTeam):', error);
+      console.error('API Error (applyToTeam):', error);
       console.error('Error response:', error.response?.data);
       console.error('Error status:', error.response?.status);
+
+      if (error.response?.status === 400) {
+        throw new Error(error.response.data?.message || 'Cannot apply to team');
+      } else if (error.response?.status === 404) {
+        throw new Error('Team not found');
+      }
+
       throw error;
     }
   },
 
-  // Remove/kick team member - matches DELETE /api/teams/:teamId/members/:userId
-  removeMember: async (teamId, userId, kickData = {}) => {
+  // Handle application (accept/reject) - matches PUT /api/teams/:id/applications/:applicationId
+  handleApplication: async (teamId, applicationId, status) => {
     try {
       if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
         throw new Error('Invalid team ID format');
       }
-      if (!userId || !userId.match(/^[0-9a-fA-F]{24}$/)) {
-        throw new Error('Invalid user ID format');
+      if (!applicationId || !applicationId.match(/^[0-9a-fA-F]{24}$/)) {
+        throw new Error('Invalid application ID format');
+      }
+      if (!['accepted', 'rejected'].includes(status)) {
+        throw new Error('Status must be either accepted or rejected');
       }
       
-      // Clean kick data
-      const cleanKickData = {};
-      if (kickData.reason && kickData.reason.trim()) {
-        cleanKickData.reason = kickData.reason.trim();
-      }
-      
-      const response = await api.delete(`/teams/${teamId}/members/${userId}`, { 
-        data: cleanKickData 
-      });
+      const response = await api.put(`/teams/${teamId}/applications/${applicationId}`, { status });
       return {
         success: true,
         data: response.data
       };
     } catch (error) {
-      console.error('API Error (removeMember):', error);
+      console.error('API Error (handleApplication):', error);
       console.error('Error response:', error.response?.data);
       console.error('Error status:', error.response?.status);
+
+      if (error.response?.status === 403) {
+        throw new Error('Only team leader can handle applications');
+      } else if (error.response?.status === 404) {
+        throw new Error('Team or application not found');
+      }
+
       throw error;
     }
   },
 
-  // Transfer team leadership - matches POST /api/teams/:teamId/transfer-leadership
-  transferLeadership: async (teamId, transferData) => {
-    try {
-      if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
-        throw new Error('Invalid team ID format');
-      }
-      
-      if (!transferData.newLeaderId || !transferData.newLeaderId.match(/^[0-9a-fA-F]{24}$/)) {
-        throw new Error('Invalid new leader ID format');
-      }
-      
-      const cleanTransferData = {
-        newLeaderId: transferData.newLeaderId
-      };
-      
-      const response = await api.post(`/teams/${teamId}/transfer-leadership`, cleanTransferData);
-      return {
-        success: true,
-        data: response.data
-      };
-    } catch (error) {
-      console.error('API Error (transferLeadership):', error);
-      console.error('Error response:', error.response?.data);
-      console.error('Error status:', error.response?.status);
-      throw error;
-    }
-  },
-
-  // Update member permissions - matches PUT /api/teams/:teamId/members/:userId/permissions
-  updateMemberPermissions: async (teamId, userId, permissionsData) => {
-    try {
-      if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
-        throw new Error('Invalid team ID format');
-      }
-      if (!userId || !userId.match(/^[0-9a-fA-F]{24}$/)) {
-        throw new Error('Invalid user ID format');
-      }
-      
-      // Clean permissions data
-      const cleanPermissionsData = {
-        permissions: {}
-      };
-      
-      if (permissionsData.permissions) {
-        if (permissionsData.permissions.canInvite !== undefined) {
-          cleanPermissionsData.permissions.canInvite = Boolean(permissionsData.permissions.canInvite);
-        }
-        if (permissionsData.permissions.canKick !== undefined) {
-          cleanPermissionsData.permissions.canKick = Boolean(permissionsData.permissions.canKick);
-        }
-        if (permissionsData.permissions.canEditTeam !== undefined) {
-          cleanPermissionsData.permissions.canEditTeam = Boolean(permissionsData.permissions.canEditTeam);
-        }
-      }
-      
-      const response = await api.put(`/teams/${teamId}/members/${userId}/permissions`, cleanPermissionsData);
-      return {
-        success: true,
-        data: response.data
-      };
-    } catch (error) {
-      console.error('API Error (updateMemberPermissions):', error);
-      console.error('Error response:', error.response?.data);
-      console.error('Error status:', error.response?.status);
-      throw error;
-    }
-  },
-
-  // Get teams for a specific hackathon - matches GET /api/teams/hackathon/:hackathonId
+  // Get teams for a specific hackathon - matches GET /api/hackathons/:hackathonId/teams
   getHackathonTeams: async (hackathonId, params = {}) => {
     try {
       if (!hackathonId || !hackathonId.match(/^[0-9a-fA-F]{24}$/)) {
         throw new Error('Invalid hackathon ID format');
       }
       
-      // Clean and validate parameters according to backend validation
-      const cleanParams = {};
-      
-      // Pagination parameters
-      if (params.page) {
-        const page = parseInt(params.page);
-        if (page >= 1) cleanParams.page = page;
-      }
-      
-      if (params.limit) {
-        const limit = parseInt(params.limit);
-        if (limit >= 1 && limit <= 50) cleanParams.limit = limit;
-      }
-      
-      // Sort parameter
-      if (params.sortBy && ['lastActivity', 'newest', 'oldest', 'mostViewed', 'teamSize'].includes(params.sortBy)) {
-        cleanParams.sortBy = params.sortBy;
-      }
-      
-      // Status filter
-      if (params.status && ['forming', 'complete', 'competing', 'finished'].includes(params.status)) {
-        cleanParams.status = params.status;
-      }
-      
-      // Skills filter (comma-separated string)
-      if (params.skills && typeof params.skills === 'string' && params.skills.trim()) {
-        cleanParams.skills = params.skills.trim();
-      }
-      
-      // Boolean filters
-      if (params.hasOpenings !== undefined && params.hasOpenings !== '') {
-        cleanParams.hasOpenings = params.hasOpenings === true || params.hasOpenings === 'true';
-      }
-      
-      // Location filter
-      if (params.location && ['remote', 'hybrid', 'in_person'].includes(params.location)) {
-        cleanParams.location = params.location;
-      }
-      
-      // Search query
-      if (params.search && typeof params.search === 'string' && params.search.trim().length >= 2) {
-        cleanParams.search = params.search.trim();
-      }
-      
-      console.log('Requesting hackathon teams with params:', cleanParams);
-      const response = await api.get(`/teams/hackathon/${hackathonId}`, { params: cleanParams });
+      console.log('Requesting hackathon teams with params:', params);
+      const response = await api.get(`/hackathons/${hackathonId}/teams`, { params });
       return {
         success: true,
-        data: response.data.teams || response.data.data?.teams || response.data,
-        pagination: response.data.pagination || response.data.data?.pagination,
-        total: response.data.total || response.data.data?.total
+        data: response.data.data || response.data.teams || response.data,
+        pagination: response.data.pagination,
+        total: response.data.total
       };
     } catch (error) {
       console.error('API Error (getHackathonTeams):', error);
@@ -570,10 +445,6 @@ export const teamAPI = {
       
       if (error.response?.status === 400) {
         const errorMessage = error.response.data?.message || 'Invalid request parameters';
-        const validationErrors = error.response.data?.errors;
-        if (validationErrors && Array.isArray(validationErrors)) {
-          throw new Error(`Validation failed: ${validationErrors.map(err => err.msg || err.message || err).join(', ')}`);
-        }
         throw new Error(errorMessage);
       }
       
@@ -581,155 +452,138 @@ export const teamAPI = {
     }
   },
 
-  // Get team recommendations - matches GET /api/teams/recommendations/:hackathonId
-getTeamRecommendations: async (hackathonId, params = {}) => {
-  try {
-    // Validate hackathonId before making request
-    if (!hackathonId) {
-      throw new Error('Hackathon ID is required');
-    }
-    
-    if (!hackathonId.match(/^[0-9a-fA-F]{24}$/)) {
-      throw new Error('Invalid hackathon ID format');
-    }
-    
-    // Clean parameters for recommendations
-    const cleanParams = {};
-    
-    if (params.limit) {
-      const limit = parseInt(params.limit);
-      if (limit >= 1 && limit <= 20) {
-        cleanParams.limit = limit;
-      }
-    }
-    
-    console.log('Requesting team recommendations with params:', {
-      hackathonId,
-      cleanParams
-    });
-    
-    const response = await api.get(`/teams/recommendations/${hackathonId}`, { 
-      params: cleanParams,
-      timeout: 10000 // 10 second timeout
-    });
-    
-    console.log('API Response:', response.data);
-    
-    return {
-      success: true,
-      data: response.data.data?.recommendations || 
-            response.data.recommendations || 
-            response.data.teams || 
-            response.data.data?.teams || 
-            response.data.data || 
-            []
-    };
-    
-  } catch (error) {
-    console.error('API Error (getTeamRecommendations):', error);
-    console.error('Error response:', error.response?.data);
-    console.error('Error status:', error.response?.status);
-    console.error('Request params that caused error:', params);
-    console.error('Hackathon ID:', hackathonId);
-    
-    // Handle specific error cases
-    if (error.response?.status === 401) {
-      console.warn('User not authenticated');
-      return {
-        success: false,
-        data: [],
-        error: 'Please log in to get recommendations'
-      };
-    }
-    
-    if (error.response?.status === 400) {
-      const message = error.response.data?.message || 'Bad request';
-      console.warn('Bad request:', message);
-      return {
-        success: false,
-        data: [],
-        error: message
-      };
-    }
-    
-    // Handle 501 errors gracefully for recommendations (when method not implemented)
-    if (error.response?.status === 501) {
-      console.warn('Team recommendations service not implemented yet');
-      return {
-        success: false,
-        data: [],
-        error: 'Team recommendations not available yet'
-      };
-    }
-    
-    // Handle 503 errors (service unavailable)
-    if (error.response?.status === 503) {
-      console.warn('Team recommendations service unavailable');
-      return {
-        success: false,
-        data: [],
-        error: 'Team recommendation service is currently unavailable'
-      };
-    }
-    
-    // Handle 500 errors gracefully for recommendations
-    if (error.response?.status === 500) {
-      console.warn('Recommendations service temporarily unavailable');
-      return {
-        success: false,
-        data: [],
-        error: 'Recommendations temporarily unavailable'
-      };
-    }
-    
-    // Handle network errors
-    if (error.code === 'ECONNABORTED') {
-      return {
-        success: false,
-        data: [],
-        error: 'Request timed out. Please try again.'
-      };
-    }
-    
-    // For other errors, throw to be handled by the calling component
-    throw error;
-  }
-},
-
-  // Get team statistics - matches GET /api/teams/:teamId/stats
-  getTeamStats: async (teamId) => {
+  // Search teams - matches GET /api/teams/search
+  searchTeams: async (searchParams = {}) => {
     try {
-      if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
-        throw new Error('Invalid team ID format');
-      }
-      const response = await api.get(`/teams/${teamId}/stats`);
+      console.log('Searching teams with params:', searchParams);
+      const response = await api.get('/teams/search', { params: searchParams });
       return {
         success: true,
-        data: response.data.stats || response.data.data?.stats || response.data
+        data: response.data.data || response.data.teams || response.data,
+        pagination: response.data.pagination
       };
     } catch (error) {
-      console.error('API Error (getTeamStats):', error);
+      console.error('API Error (searchTeams):', error);
       console.error('Error response:', error.response?.data);
       console.error('Error status:', error.response?.status);
-      
-      // Handle 501 errors gracefully for stats (when method not implemented)
-      if (error.response?.status === 501) {
-        console.warn('Team stats service not implemented yet');
-        return {
-          success: false,
-          data: null,
-          error: 'Team statistics not available yet'
-        };
-      }
-      
       throw error;
     }
   },
 
-  // Search teams within a hackathon - uses GET /api/teams/hackathon/:hackathonId with search params
-  searchTeams: async (hackathonId, searchParams = {}) => {
-    // This is just an alias for getHackathonTeams with search parameters
-    return teamAPI.getHackathonTeams(hackathonId, searchParams);
+  // Get team members - matches GET /api/teams/:id/members
+  getTeamMembers: async (teamId) => {
+    try {
+      if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
+        throw new Error('Invalid team ID format');
+      }
+      
+      const response = await api.get(`/teams/${teamId}/members`);
+      return {
+        success: true,
+        data: response.data.data || response.data
+      };
+    } catch (error) {
+      console.error('API Error (getTeamMembers):', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+
+      if (error.response?.status === 404) {
+        throw new Error('Team not found');
+      }
+
+      throw error;
+    }
+  },
+
+  // Get team applications - matches GET /api/teams/:id/applications
+  getTeamApplications: async (teamId) => {
+    try {
+      if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
+        throw new Error('Invalid team ID format');
+      }
+      
+      const response = await api.get(`/teams/${teamId}/applications`);
+      return {
+        success: true,
+        data: response.data.data || response.data
+      };
+    } catch (error) {
+      console.error('API Error (getTeamApplications):', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+
+      if (error.response?.status === 403) {
+        throw new Error('Only team leader can view applications');
+      } else if (error.response?.status === 404) {
+        throw new Error('Team not found');
+      }
+
+      throw error;
+    }
+  },
+
+  // Kick member from team - matches POST /api/teams/:id/kick/:userId
+  kickMember: async (teamId, userId) => {
+    try {
+      if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
+        throw new Error('Invalid team ID format');
+      }
+      if (!userId || !userId.match(/^[0-9a-fA-F]{24}$/)) {
+        throw new Error('Invalid user ID format');
+      }
+      
+      const response = await api.post(`/teams/${teamId}/kick/${userId}`);
+      return {
+        success: true,
+        data: response.data.data || response.data
+      };
+    } catch (error) {
+      console.error('API Error (kickMember):', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+
+      if (error.response?.status === 403) {
+        throw new Error('Only team leader can remove members');
+      } else if (error.response?.status === 400) {
+        throw new Error(error.response.data?.message || 'Cannot remove member');
+      } else if (error.response?.status === 404) {
+        throw new Error('Team not found');
+      }
+
+      throw error;
+    }
+  },
+
+  // Transfer team leadership - matches POST /api/teams/:id/transfer-leadership/:userId
+  transferLeadership: async (teamId, newLeaderId) => {
+    try {
+      if (!teamId || !teamId.match(/^[0-9a-fA-F]{24}$/)) {
+        throw new Error('Invalid team ID format');
+      }
+      if (!newLeaderId || !newLeaderId.match(/^[0-9a-fA-F]{24}$/)) {
+        throw new Error('Invalid new leader ID format');
+      }
+      
+      const response = await api.post(`/teams/${teamId}/transfer-leadership/${newLeaderId}`);
+      return {
+        success: true,
+        data: response.data.data || response.data
+      };
+    } catch (error) {
+      console.error('API Error (transferLeadership):', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+
+      if (error.response?.status === 403) {
+        throw new Error('Only current team leader can transfer leadership');
+      } else if (error.response?.status === 400) {
+        throw new Error(error.response.data?.message || 'Cannot transfer leadership');
+      } else if (error.response?.status === 404) {
+        throw new Error('Team not found');
+      }
+
+      throw error;
+    }
   },
 
   // Validate team creation data before sending
@@ -742,12 +596,13 @@ getTeamRecommendations: async (hackathonId, params = {}) => {
     }
     
     // Description validation
-    if (!teamData.description || teamData.description.trim().length < 10 || teamData.description.trim().length > 1000) {
-      errors.push('Description must be between 10 and 1000 characters');
+    if (!teamData.description || teamData.description.trim().length < 10 || teamData.description.trim().length > 500) {
+      errors.push('Description must be between 10 and 500 characters');
     }
     
     // Hackathon ID validation
-    if (!teamData.hackathonId || !teamData.hackathonId.match(/^[0-9a-fA-F]{24}$/)) {
+    const hackathonId = teamData.hackathon || teamData.hackathonId;
+    if (!hackathonId || !hackathonId.match(/^[0-9a-fA-F]{24}$/)) {
       errors.push('Invalid hackathon ID');
     }
     
@@ -757,117 +612,29 @@ getTeamRecommendations: async (hackathonId, params = {}) => {
     }
     
     // Required skills validation
-    if (teamData.requiredSkills && Array.isArray(teamData.requiredSkills)) {
-      teamData.requiredSkills.forEach((skillObj, idx) => {
-        if (!skillObj.skill || skillObj.skill.trim().length < 2 || skillObj.skill.trim().length > 50) {
-          errors.push(`Skill ${idx + 1} name must be between 2 and 50 characters`);
-        }
-        if (skillObj.priority && !['low', 'medium', 'high', 'critical'].includes(skillObj.priority)) {
-          errors.push(`Skill ${idx + 1} priority must be one of: low, medium, high, critical`);
-        }
-      });
-    }
-    
-    // Preferred roles validation
-    if (teamData.preferredRoles && Array.isArray(teamData.preferredRoles)) {
-      const validRoles = ['developer', 'designer', 'data_scientist', 'product_manager', 'marketing', 'other'];
-      teamData.preferredRoles.forEach((roleObj, idx) => {
-        if (!validRoles.includes(roleObj.role)) {
-          errors.push(`Role ${idx + 1} must be one of: ${validRoles.join(', ')}`);
-        }
-        if (roleObj.count && roleObj.count < 1) {
-          errors.push(`Role ${idx + 1} count must be at least 1`);
-        }
-      });
-    }
-    
-    // Project category validation
-    if (teamData.project && teamData.project.category) {
-      const validCategories = ['web', 'mobile', 'ai_ml', 'blockchain', 'iot', 'ar_vr', 'gaming', 'fintech', 'healthtech', 'edtech', 'other'];
-      if (!validCategories.includes(teamData.project.category)) {
-        errors.push(`Project category must be one of: ${validCategories.join(', ')}`);
-      }
-    }
-    
-    // Project repository URL validation
-    if (teamData.project && teamData.project.repositoryUrl) {
-      try {
-        new URL(teamData.project.repositoryUrl);
-      } catch {
-        errors.push('Repository URL must be a valid URL');
-      }
-    }
-    
-    // Communication channel validation
-    if (teamData.communication && teamData.communication.primaryChannel) {
-      const validChannels = ['discord', 'slack', 'telegram', 'whatsapp', 'teams', 'other'];
-      if (!validChannels.includes(teamData.communication.primaryChannel)) {
-        errors.push(`Communication channel must be one of: ${validChannels.join(', ')}`);
-      }
-    }
-    
-    // Location preference validation
-    if (teamData.location && teamData.location.preference) {
-      const validPreferences = ['remote', 'hybrid', 'in_person'];
-      if (!validPreferences.includes(teamData.location.preference)) {
-        errors.push(`Location preference must be one of: ${validPreferences.join(', ')}`);
-      }
+    if (teamData.requiredSkills && !Array.isArray(teamData.requiredSkills)) {
+      errors.push('Required skills must be an array');
     }
     
     // Tags validation
-    if (teamData.tags && Array.isArray(teamData.tags)) {
-      if (teamData.tags.length > 10) {
-        errors.push('Maximum 10 tags allowed');
-      }
-      teamData.tags.forEach((tag, idx) => {
-        if (!tag || tag.trim().length < 2 || tag.trim().length > 30) {
-          errors.push(`Tag ${idx + 1} must be between 2 and 30 characters`);
-        }
-      });
+    if (teamData.tags && !Array.isArray(teamData.tags)) {
+      errors.push('Tags must be an array');
+    }
+    
+    // Contact info validation
+    if (teamData.contactInfo?.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(teamData.contactInfo.email)) {
+      errors.push('Valid email is required for contact info');
+    }
+    
+    // Application required validation
+    if (teamData.applicationRequired && typeof teamData.applicationRequired !== 'boolean') {
+      errors.push('Application required must be a boolean');
     }
     
     return {
       isValid: errors.length === 0,
       errors
     };
-  },
-
-  // Get teams with advanced filtering - improved version
-  getTeamsWithFilters: async (hackathonId, filters = {}) => {
-    // This is an alias for getHackathonTeams with better parameter handling
-    return teamAPI.getHackathonTeams(hackathonId, filters);
-  },
-
-  // Utility method to check if backend methods are implemented
-  checkMethodAvailability: async (teamId = null) => {
-    const methods = {
-      createTeam: true, // Always available
-      getUserTeams: true, // Always available
-      getTeam: true, // Always available
-      updateTeam: true, // Always available
-      deleteTeam: true, // Always available
-      joinTeam: false, // Check implementation
-      leaveTeam: false, // Check implementation
-      inviteToTeam: false, // Check implementation
-      kickMember: false, // Check implementation
-      transferLeadership: false, // Check implementation
-      updateMemberPermissions: false, // Check implementation
-      getHackathonTeams: false, // Check implementation
-      getTeamRecommendations: false, // Check implementation
-      getTeamStats: false // Check implementation
-    };
-
-    // If teamId is provided, we can test some methods
-    if (teamId && teamId.match(/^[0-9a-fA-F]{24}$/)) {
-      try {
-        const statsResponse = await teamAPI.getTeamStats(teamId);
-        methods.getTeamStats = statsResponse.success;
-      } catch (error) {
-        methods.getTeamStats = error.response?.status !== 501;
-      }
-    }
-
-    return methods;
   }
 };
 // Request API calls

@@ -1,470 +1,433 @@
 import React, { useState } from 'react';
-import { Card, Badge, Button, ProgressBar, Modal, Form, Alert, Spinner } from 'react-bootstrap';
-import { teamAPI } from './teamAPI'; // Adjust import path as needed
+import { teamAPI } from '../services/api';
 
-const TeamCard = ({ 
-  team, 
-  currentUser, 
-  onTeamUpdate, 
-  onTeamJoin, 
-  onTeamLeave,
-  showActions = true,
-  isDetailed = false 
-}) => {
+const TeamCard = ({ team, currentUser, onTeamUpdate, showActions = true }) => {
   const [showJoinModal, setShowJoinModal] = useState(false);
-  const [showLeaveModal, setShowLeaveModal] = useState(false);
-  const [joinData, setJoinData] = useState({ role: 'developer', message: '' });
-  const [leaveData, setLeaveData] = useState({ transferTo: '' });
+  const [showApplyModal, setShowApplyModal] = useState(false);
+  const [applicationMessage, setApplicationMessage] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [alert, setAlert] = useState(null);
 
-  // Check if current user is team member
   const isTeamMember = team.members?.some(member => 
-    member.userId._id === currentUser?._id && member.status === 'active'
-  );
+    member.user._id === currentUser?.id || member.user === currentUser?.id
+  ) || team.leader._id === currentUser?.id || team.leader === currentUser?.id;
 
-  // Check if current user is team leader
-  const isTeamLeader = team.leaderId._id === currentUser?._id;
+  const isTeamLeader = team.leader._id === currentUser?.id || team.leader === currentUser?.id;
 
-  // Get current user's member data
-    // eslint-disable-next-line no-unused-vars
-    const currentUserMemberData = team.members?.find(member =>  
-    member.userId._id === currentUser?._id
-    );
-  // Handle join team
   const handleJoinTeam = async () => {
-    if (!currentUser) {
-      setError('You must be logged in to join a team');
-      return;
-    }
-
     setLoading(true);
-    setError('');
-
     try {
-      const result = await teamAPI.joinTeam(team._id, joinData);
-      if (result.success) {
-        setShowJoinModal(false);
-        setJoinData({ role: 'developer', message: '' });
-        if (onTeamJoin) onTeamJoin(team._id, result.data);
-        if (onTeamUpdate) onTeamUpdate();
-      }
+      await teamAPI.joinTeam(team._id);
+      setAlert({ type: 'success', message: 'Successfully joined the team!' });
+      setShowJoinModal(false);
+      if (onTeamUpdate) onTeamUpdate();
     } catch (error) {
-      setError(error.message);
+      setAlert({ type: 'danger', message: error.message });
     } finally {
       setLoading(false);
     }
   };
 
-  // Handle leave team
-  const handleLeaveTeam = async () => {
+  const handleApplyToTeam = async () => {
     setLoading(true);
-    setError('');
-
     try {
-      const result = await teamAPI.leaveTeam(team._id, leaveData);
-      if (result.success) {
-        setShowLeaveModal(false);
-        setLeaveData({ transferTo: '' });
-        if (onTeamLeave) onTeamLeave(team._id);
-        if (onTeamUpdate) onTeamUpdate();
-      }
+      await teamAPI.applyToTeam(team._id, { message: applicationMessage });
+      setAlert({ type: 'success', message: 'Application submitted successfully!' });
+      setShowApplyModal(false);
+      setApplicationMessage('');
+      if (onTeamUpdate) onTeamUpdate();
     } catch (error) {
-      setError(error.message);
+      setAlert({ type: 'danger', message: error.message });
     } finally {
       setLoading(false);
     }
   };
 
-  // Get status color
-  const getStatusColor = (status) => {
+  const getStatusBadgeClass = (status) => {
     switch (status) {
-      case 'forming': return 'warning';
-      case 'complete': return 'success';
-      case 'competing': return 'primary';
-      case 'finished': return 'info';
-      case 'disbanded': return 'danger';
-      default: return 'secondary';
+      case 'open': return 'badge bg-success';
+      case 'full': return 'badge bg-warning';
+      case 'closed': return 'badge bg-danger';
+      default: return 'badge bg-secondary';
     }
-  };
-
-  // Get role color
-  const getRoleColor = (role) => {
-    switch (role) {
-      case 'leader': return 'danger';
-      case 'developer': return 'primary';
-      case 'designer': return 'info';
-      case 'data_scientist': return 'success';
-      case 'product_manager': return 'warning';
-      case 'marketing': return 'secondary';
-      default: return 'light';
-    }
-  };
-
-  // Format date
-  const formatDate = (date) => {
-    return new Date(date).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
   };
 
   return (
     <>
-      <Card className="h-100 shadow-sm team-card">
-        <Card.Header className="d-flex justify-content-between align-items-center">
-          <div>
-            <h5 className="mb-1">{team.name}</h5>
-            <Badge bg={getStatusColor(team.status)} className="me-2">
-              {team.status.charAt(0).toUpperCase() + team.status.slice(1)}
-            </Badge>
-            {team.isFull && <Badge bg="danger">Full</Badge>}
+      <div className="card h-100 team-card border-0 shadow-lg">
+        <div className="card-body d-flex flex-column text-light">
+          {/* Team Header */}
+          <div className="d-flex justify-content-between align-items-start mb-3">
+            <div>
+              <h5 className="card-title text-warning mb-1 team-title">
+                <span className="text-shadow">{team.name}</span>
+              </h5>
+              <small className="text-muted">
+                Led by <span className="text-info">{team.leader.name}</span>
+              </small>
+            </div>
+            <span className={`${getStatusBadgeClass(team.status)} status-badge`}>
+              {team.status.toUpperCase()}
+            </span>
           </div>
-          <div className="text-muted small">
-            {team.teamSize.current}/{team.teamSize.max} members
-          </div>
-        </Card.Header>
 
-        <Card.Body>
+          {/* Team Stats */}
+          <div className="row mb-3">
+            <div className="col-6">
+              <div className="stat-box p-2 rounded">
+                <div className="text-warning small">Members</div>
+                <div className="text-light fw-bold">
+                  {team.currentMembers || team.members?.length || 0}/{team.maxMembers}
+                </div>
+              </div>
+            </div>
+            <div className="col-6">
+              <div className="stat-box-alt p-2 rounded">
+                <div className="text-warning small">Available</div>
+                <div className="text-light fw-bold">
+                  {team.availableSpots || (team.maxMembers - (team.members?.length || 0))}
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Description */}
-          <p className="text-muted mb-3">
-            {team.description.length > 150 && !isDetailed 
-              ? `${team.description.substring(0, 150)}...` 
-              : team.description}
+          <p className="card-text flex-grow-1 mb-3 text-light team-description">
+            {team.description}
           </p>
 
-          {/* Team Leader */}
-          <div className="mb-3">
-            <small className="text-muted">Team Leader:</small>
-            <div className="d-flex align-items-center mt-1">
-              <img 
-                src={team.leaderId.profilePicture || '/default-avatar.png'} 
-                alt={`${team.leaderId.firstName} ${team.leaderId.lastName}`}
-                className="rounded-circle me-2"
-                width="24"
-                height="24"
-              />
-              <span className="fw-medium">
-                {team.leaderId.firstName} {team.leaderId.lastName}
-              </span>
-            </div>
-          </div>
-
-          {/* Team Members (if detailed view) */}
-          {isDetailed && team.members.length > 0 && (
-            <div className="mb-3">
-              <small className="text-muted">Team Members:</small>
-              <div className="mt-2">
-                {team.members
-                  .filter(member => member.status === 'active')
-                  .map((member, index) => (
-                  <div key={member._id || index} className="d-flex align-items-center justify-content-between mb-2">
-                    <div className="d-flex align-items-center">
-                      <img 
-                        src={member.userId.profilePicture || '/default-avatar.png'} 
-                        alt={`${member.userId.firstName} ${member.userId.lastName}`}
-                        className="rounded-circle me-2"
-                        width="24"
-                        height="24"
-                      />
-                      <span className="me-2">
-                        {member.userId.firstName} {member.userId.lastName}
-                      </span>
-                    </div>
-                    <Badge bg={getRoleColor(member.role)} className="small">
-                      {member.role.replace('_', ' ')}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* Required Skills */}
-          {team.requiredSkills.length > 0 && (
+          {team.requiredSkills && team.requiredSkills.length > 0 && (
             <div className="mb-3">
-              <small className="text-muted">Required Skills:</small>
-              <div className="mt-1">
-                {team.requiredSkills.slice(0, isDetailed ? team.requiredSkills.length : 3).map((skillObj, index) => (
-                  <Badge 
-                    key={index} 
-                    bg={skillObj.fulfilled ? 'success' : 'outline-secondary'} 
-                    className="me-1 mb-1"
-                  >
-                    {skillObj.skill}
-                    {skillObj.priority === 'critical' && ' ⚡'}
-                    {skillObj.priority === 'high' && ' 🔥'}
-                  </Badge>
-                ))}
-                {!isDetailed && team.requiredSkills.length > 3 && (
-                  <Badge bg="light" className="text-muted">
-                    +{team.requiredSkills.length - 3} more
-                  </Badge>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Project Info */}
-          {team.project?.name && (
-            <div className="mb-3">
-              <small className="text-muted">Project:</small>
-              <div className="mt-1">
-                <strong>{team.project.name}</strong>
-                {team.project.category && (
-                  <Badge bg="outline-primary" className="ms-2 small">
-                    {team.project.category.replace('_', ' ')}
-                  </Badge>
-                )}
-              </div>
-              {isDetailed && team.project.description && (
-                <p className="text-muted small mt-1">{team.project.description}</p>
-              )}
-            </div>
-          )}
-
-          {/* Technologies */}
-          {team.project?.technologies?.length > 0 && (
-            <div className="mb-3">
-              <small className="text-muted">Technologies:</small>
-              <div className="mt-1">
-                {team.project.technologies.slice(0, isDetailed ? team.project.technologies.length : 4).map((tech, index) => (
-                  <Badge key={index} bg="outline-info" className="me-1 mb-1 small">
-                    {tech}
-                  </Badge>
-                ))}
-                {!isDetailed && team.project.technologies.length > 4 && (
-                  <Badge bg="light" className="text-muted small">
-                    +{team.project.technologies.length - 4} more
-                  </Badge>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Location */}
-          {team.location?.preference && (
-            <div className="mb-3">
-              <small className="text-muted">Work Style:</small>
-              <div className="mt-1">
-                <Badge bg="outline-secondary" className="me-2">
-                  {team.location.preference.replace('_', ' ')}
-                </Badge>
-                {team.location.city && (
-                  <span className="text-muted small">
-                    📍 {team.location.city}
-                    {team.location.country && `, ${team.location.country}`}
+              <h6 className="text-info mb-2">🎯 Required Skills:</h6>
+              <div className="d-flex flex-wrap gap-1">
+                {team.requiredSkills.map((skill, index) => (
+                  <span key={index} className="badge skill-badge">
+                    {typeof skill === 'object' ? skill.skill : skill}
                   </span>
-                )}
+                ))}
               </div>
             </div>
           )}
 
           {/* Tags */}
-          {team.tags?.length > 0 && (
+          {team.tags && team.tags.length > 0 && (
             <div className="mb-3">
-              <small className="text-muted">Tags:</small>
-              <div className="mt-1">
-                {team.tags.slice(0, isDetailed ? team.tags.length : 3).map((tag, index) => (
-                  <Badge key={index} bg="light" className="text-dark me-1 mb-1 small">
-                    #{tag}
-                  </Badge>
+              <h6 className="text-warning mb-2">⚡ Tech Stack:</h6>
+              <div className="d-flex flex-wrap gap-1">
+                {team.tags.map((tag, index) => (
+                  <span key={index} className="badge tech-badge">
+                    {tag}
+                  </span>
                 ))}
-                {!isDetailed && team.tags.length > 3 && (
-                  <Badge bg="light" className="text-muted small">
-                    +{team.tags.length - 3} more
-                  </Badge>
-                )}
               </div>
             </div>
           )}
 
-          {/* Profile Completion */}
-          {isDetailed && (
-            <div className="mb-3">
-              <small className="text-muted">Profile Completion:</small>
-              <ProgressBar 
-                now={team.profileCompletion || team.stats?.completionScore || 0} 
-                className="mt-1"
-                variant={team.profileCompletion >= 80 ? 'success' : team.profileCompletion >= 50 ? 'warning' : 'danger'}
-              />
-              <small className="text-muted">
-                {team.profileCompletion || team.stats?.completionScore || 0}% complete
-              </small>
+          {/* Actions */}
+          {showActions && !isTeamMember && team.status === 'open' && (
+            <div className="mt-auto">
+              {team.applicationRequired ? (
+                <button 
+                  className="btn btn-outline-info w-100 cyber-button"
+                  onClick={() => setShowApplyModal(true)}
+                >
+                  🚀 Apply to Join
+                </button>
+              ) : (
+                <button 
+                  className="btn btn-outline-success w-100 cyber-button"
+                  onClick={() => setShowJoinModal(true)}
+                >
+                  ⚡ Join Team
+                </button>
+              )}
             </div>
           )}
 
-          {/* Last Activity */}
-          <div className="text-muted small">
-            <span>Last active: {formatDate(team.stats?.lastActivity || team.updatedAt)}</span>
-            {team.stats?.viewCount > 0 && (
-              <span className="ms-3">👁 {team.stats.viewCount} views</span>
-            )}
+          {isTeamMember && (
+            <div className="mt-auto">
+              <div className="badge bg-success w-100 p-2 member-badge">
+                {isTeamLeader ? '👑 Team Leader' : '✅ Team Member'}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Alert */}
+        {alert && (
+          <div className={`alert alert-${alert.type} alert-dismissible fade show m-3 mb-0`}>
+            {alert.message}
+            <button 
+              type="button" 
+              className="btn-close" 
+              onClick={() => setAlert(null)}
+            ></button>
           </div>
-        </Card.Body>
+        )}
+      </div>
 
-        {/* Actions */}
-        {showActions && (
-          <Card.Footer className="bg-light">
-            <div className="d-flex justify-content-between align-items-center">
-              <div>
-                {team.availableSpots > 0 && (
-                  <small className="text-success">
-                    🟢 {team.availableSpots} spot{team.availableSpots !== 1 ? 's' : ''} available
-                  </small>
-                )}
-                {team.isFull && (
-                  <small className="text-danger">🔴 Team full</small>
-                )}
+      {/* Join Confirmation Modal */}
+      {showJoinModal && (
+        <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.8)' }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content cyber-modal">
+              <div className="modal-header">
+                <h5 className="modal-title text-warning">🚀 Join Team</h5>
+                <button 
+                  type="button" 
+                  className="btn-close btn-close-white" 
+                  onClick={() => setShowJoinModal(false)}
+                ></button>
               </div>
-              
-              <div>
-                {!isTeamMember && !team.isFull && currentUser && (
-                  <Button 
-                    variant="primary" 
-                    size="sm"
-                    onClick={() => setShowJoinModal(true)}
-                    disabled={loading}
-                  >
-                    {loading ? <Spinner size="sm" /> : 'Join Team'}
-                  </Button>
-                )}
-                
-                {isTeamMember && (
-                  <Button 
-                    variant="outline-danger" 
-                    size="sm"
-                    onClick={() => setShowLeaveModal(true)}
-                    disabled={loading}
-                  >
-                    {loading ? <Spinner size="sm" /> : 'Leave Team'}
-                  </Button>
-                )}
-                
-                <Button 
-                  variant="outline-primary" 
-                  size="sm" 
-                  className="ms-2"
-                  onClick={() => window.open(`/teams/${team._id}`, '_blank')}
+              <div className="modal-body text-light">
+                <p>Are you sure you want to join <strong className="text-info">{team.name}</strong>?</p>
+                <p className="text-muted mb-0">You'll be added as a team member immediately.</p>
+              </div>
+              <div className="modal-footer">
+                <button 
+                  type="button" 
+                  className="btn btn-outline-secondary" 
+                  onClick={() => setShowJoinModal(false)}
                 >
-                  View Details
-                </Button>
+                  Cancel
+                </button>
+                <button 
+                  type="button" 
+                  className="btn btn-outline-success cyber-button" 
+                  onClick={handleJoinTeam} 
+                  disabled={loading}
+                >
+                  {loading && <span className="spinner-border spinner-border-sm me-2"></span>}
+                  Join Team
+                </button>
               </div>
             </div>
-          </Card.Footer>
-        )}
-      </Card>
+          </div>
+        </div>
+      )}
 
-      {/* Join Team Modal */}
-      <Modal show={showJoinModal} onHide={() => setShowJoinModal(false)}>
-        <Modal.Header closeButton>
-          <Modal.Title>Join Team: {team.name}</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          {error && <Alert variant="danger">{error}</Alert>}
-          
-          <Form>
-            <Form.Group className="mb-3">
-              <Form.Label>Role</Form.Label>
-              <Form.Select 
-                value={joinData.role}
-                onChange={(e) => setJoinData({...joinData, role: e.target.value})}
-              >
-                <option value="developer">Developer</option>
-                <option value="designer">Designer</option>
-                <option value="data_scientist">Data Scientist</option>
-                <option value="product_manager">Product Manager</option>
-                <option value="marketing">Marketing</option>
-                <option value="other">Other</option>
-              </Form.Select>
-            </Form.Group>
-            
-            <Form.Group className="mb-3">
-              <Form.Label>Message (Optional)</Form.Label>
-              <Form.Control
-                as="textarea"
-                rows={3}
-                placeholder="Tell the team why you'd like to join..."
-                value={joinData.message}
-                onChange={(e) => setJoinData({...joinData, message: e.target.value})}
-                maxLength={500}
-              />
-              <Form.Text className="text-muted">
-                {joinData.message.length}/500 characters
-              </Form.Text>
-            </Form.Group>
-          </Form>
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={() => setShowJoinModal(false)}>
-            Cancel
-          </Button>
-          <Button 
-            variant="primary" 
-            onClick={handleJoinTeam}
-            disabled={loading}
-          >
-            {loading ? <Spinner size="sm" className="me-2" /> : null}
-            Join Team
-          </Button>
-        </Modal.Footer>
-      </Modal>
-
-      {/* Leave Team Modal */}
-      <Modal show={showLeaveModal} onHide={() => setShowLeaveModal(false)}>
-        <Modal.Header closeButton>
-          <Modal.Title>Leave Team: {team.name}</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          {error && <Alert variant="danger">{error}</Alert>}
-          
-          <Alert variant="warning">
-            Are you sure you want to leave this team? This action cannot be undone.
-          </Alert>
-          
-          {isTeamLeader && (
-            <Form>
-              <Form.Group className="mb-3">
-                <Form.Label>Transfer Leadership To</Form.Label>
-                <Form.Select 
-                  value={leaveData.transferTo}
-                  onChange={(e) => setLeaveData({...leaveData, transferTo: e.target.value})}
-                  required
+      {/* Application Modal */}
+      {showApplyModal && (
+        <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.8)' }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content cyber-modal">
+              <div className="modal-header">
+                <h5 className="modal-title text-warning">📝 Apply to Team</h5>
+                <button 
+                  type="button" 
+                  className="btn-close btn-close-white" 
+                  onClick={() => setShowApplyModal(false)}
+                ></button>
+              </div>
+              <div className="modal-body text-light">
+                <p>Apply to join <strong className="text-info">{team.name}</strong></p>
+                <div className="mb-3">
+                  <label className="form-label text-light">Application Message (Optional)</label>
+                  <textarea
+                    className="form-control cyber-input"
+                    rows="4"
+                    value={applicationMessage}
+                    onChange={(e) => setApplicationMessage(e.target.value)}
+                    placeholder="Tell the team why you'd be a great addition..."
+                  ></textarea>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button 
+                  type="button" 
+                  className="btn btn-outline-secondary" 
+                  onClick={() => setShowApplyModal(false)}
                 >
-                  <option value="">Select new leader...</option>
-                  {team.members
-                    .filter(member => 
-                      member.status === 'active' && 
-                      member.userId._id !== currentUser._id
-                    )
-                    .map(member => (
-                    <option key={member.userId._id} value={member.userId._id}>
-                      {member.userId.firstName} {member.userId.lastName} ({member.role})
-                    </option>
-                  ))}
-                </Form.Select>
-                <Form.Text className="text-muted">
-                  As team leader, you must transfer leadership before leaving.
-                </Form.Text>
-              </Form.Group>
-            </Form>
-          )}
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={() => setShowLeaveModal(false)}>
-            Cancel
-          </Button>
-          <Button 
-            variant="danger" 
-            onClick={handleLeaveTeam}
-            disabled={loading || (isTeamLeader && !leaveData.transferTo)}
-          >
-            {loading ? <Spinner size="sm" className="me-2" /> : null}
-            Leave Team
-          </Button>
-        </Modal.Footer>
-      </Modal>
+                  Cancel
+                </button>
+                <button 
+                  type="button" 
+                  className="btn btn-outline-info cyber-button" 
+                  onClick={handleApplyToTeam} 
+                  disabled={loading}
+                >
+                  {loading && <span className="spinner-border spinner-border-sm me-2"></span>}
+                  Submit Application
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style jsx>{`
+        .team-card {
+          background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%);
+          border: 1px solid #00ffff !important;
+          box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+          transition: all 0.3s ease;
+          position: relative;
+          overflow: hidden;
+        }
+
+        .team-card:hover {
+          transform: translateY(-5px);
+          box-shadow: 0 0 30px rgba(0, 255, 255, 0.5) !important;
+        }
+
+        .team-card::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: -100%;
+          width: 100%;
+          height: 2px;
+          background: linear-gradient(90deg, transparent, #00ffff, transparent);
+          animation: scan 2s linear infinite;
+        }
+
+        @keyframes scan {
+          0% { left: -100%; }
+          100% { left: 100%; }
+        }
+
+        .team-title {
+          font-size: 1.4rem;
+          font-weight: bold;
+        }
+
+        .text-shadow {
+          text-shadow: 0 0 10px rgba(255, 193, 7, 0.5);
+        }
+
+        .status-badge {
+          font-size: 0.8rem;
+          text-transform: uppercase;
+          text-shadow: 0 0 5px currentColor;
+        }
+
+        .stat-box {
+          background: rgba(0, 255, 255, 0.1);
+          border: 1px solid rgba(0, 255, 255, 0.3);
+          transition: all 0.3s ease;
+        }
+
+        .stat-box:hover {
+          background: rgba(0, 255, 255, 0.2);
+          box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+        }
+
+        .stat-box-alt {
+          background: rgba(255, 0, 255, 0.1);
+          border: 1px solid rgba(255, 0, 255, 0.3);
+          transition: all 0.3s ease;
+        }
+
+        .stat-box-alt:hover {
+          background: rgba(255, 0, 255, 0.2);
+          box-shadow: 0 0 10px rgba(255, 0, 255, 0.3);
+        }
+
+        .team-description {
+          font-size: 0.9rem;
+          line-height: 1.5;
+        }
+
+        .skill-badge {
+          font-size: 0.7rem;
+          border: 1px solid #17a2b8;
+          color: #17a2b8;
+          background: rgba(23, 162, 184, 0.1);
+          transition: all 0.3s ease;
+        }
+
+        .skill-badge:hover {
+          transform: scale(1.05);
+          box-shadow: 0 0 10px #17a2b8;
+        }
+
+        .tech-badge {
+          font-size: 0.7rem;
+          border: 1px solid #ffc107;
+          color: #ffc107;
+          background: rgba(255, 193, 7, 0.1);
+          transition: all 0.3s ease;
+        }
+
+        .tech-badge:hover {
+          transform: scale(1.05);
+          box-shadow: 0 0 10px #ffc107;
+        }
+
+        .cyber-button {
+          border-color: currentColor;
+          background: transparent;
+          transition: all 0.3s ease;
+          position: relative;
+          overflow: hidden;
+        }
+
+        .cyber-button::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: -100%;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+          transition: left 0.5s;
+        }
+
+        .cyber-button:hover::before {
+          left: 100%;
+        }
+
+        .cyber-button:hover {
+          background: rgba(0, 255, 255, 0.1);
+          box-shadow: 0 0 15px currentColor;
+          transform: translateY(-2px);
+        }
+
+        .member-badge {
+          font-size: 0.9rem;
+          background: linear-gradient(45deg, #28a745, #20c997) !important;
+          box-shadow: 0 0 10px rgba(40, 167, 69, 0.5);
+        }
+
+        .cyber-modal .modal-content {
+          background: linear-gradient(135deg, #0f0f23, #1a1a2e);
+          border: 1px solid #00ffff;
+          box-shadow: 0 0 30px rgba(0, 255, 255, 0.5);
+        }
+
+        .cyber-modal .modal-header {
+          background: linear-gradient(135deg, #0f0f23, #1a1a2e);
+          border-bottom: 1px solid #00ffff;
+        }
+
+        .cyber-modal .modal-body {
+          background: linear-gradient(135deg, #1a1a2e, #16213e);
+        }
+
+        .cyber-modal .modal-footer {
+          background: linear-gradient(135deg, #1a1a2e, #16213e);
+          border-top: 1px solid #00ffff;
+        }
+
+        .cyber-input {
+          background: rgba(0, 0, 0, 0.3);
+          border: 1px solid #00ffff;
+          color: #fff;
+          transition: all 0.3s ease;
+        }
+
+        .cyber-input:focus {
+          background: rgba(0, 0, 0, 0.5);
+          border-color: #00ffff;
+          box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+          color: #fff;
+        }
+
+        .cyber-input::placeholder {
+          color: rgba(255, 255, 255, 0.5);
+        }
+      `}</style>
     </>
   );
 };
